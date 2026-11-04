@@ -4,7 +4,7 @@ import { Frame } from '../../src/game/resources/frame';
 import { MenuFont, MENU_GLYPH_WIDTH } from '../../src/game/resources/menu-font';
 import { ColorPalette } from '../../src/game/resources/lemmings/color-palette';
 import type { MainImageSprites } from '../../src/game/resources/main-image-sprites';
-import { firstUnsolvedLevel, nextAudioMode } from '../../src/views/dos-view';
+import { nextAudioMode } from '../../src/views/dos-view';
 
 function solid(width: number, height: number, r = 200, g = 100, b = 50): Frame {
     const frame = new Frame(width, height);
@@ -55,16 +55,18 @@ describe('DOS title screen', () => {
         const names = Array.from({ length: 30 }, (_, index) => `Level name number ${index + 1}`);
         const { frame, hits } = buildLevelList(sprites() as unknown as MainImageSprites, font, 1, names, new Set([0, 17]));
         expect(font.lines).toHaveLength(31);
-        expect(font.lines[0]).toEqual({ text: ' 1 Level name numbe', x: 32, y: 48 });
-        expect(font.lines[15]).toEqual({ text: '16 Level name numbe', x: 352, y: 48 });
-        expect(font.lines[29].text).toBe('30 Level name numbe');
+        expect(font.lines[0]).toEqual({ text: ' 1 Level name numb', x: 16, y: 48 });
+        expect(font.lines[15]).toEqual({ text: '16 Level name numb', x: 336, y: 48 });
+        // Every entry ends inside the 640-pixel screen with a glyph of margin.
+        expect(font.lines.every(line => line.x + line.text.length * MENU_GLYPH_WIDTH <= 640 - MENU_GLYPH_WIDTH)).toBe(true);
+        expect(font.lines[29].text).toBe('30 Level name numb');
         expect(font.lines.at(-1)?.text).toBe('Back');
         expect(hitAt(hits, 100, 48 + 3 * 16 + 8)).toEqual({ kind: 'level', index: 3 });
         expect(hitAt(hits, 400, 48 + 2 * 16 + 8)).toEqual({ kind: 'level', index: 17 });
         expect(hitAt(hits, 320, 22 * 16 + 8)).toEqual({ kind: 'back' });
         const green = ColorPalette.colorFromRGB(0, 176, 0) >>> 0; // the frame buffer is unsigned
-        expect(frame.getBuffer()[(48 + 7) * 640 + (32 - 16 + 7)]).toBe(green); // level 1 is solved
-        expect(frame.getBuffer()[(64 + 7) * 640 + (32 - 16 + 7)]).not.toBe(green); // level 2 is not
+        expect(frame.getBuffer()[(48 + 7) * 640 + (16 - 16 + 7)]).toBe(green); // level 1 is solved
+        expect(frame.getBuffer()[(64 + 7) * 640 + (16 - 16 + 7)]).not.toBe(green); // level 2 is not
     });
 });
 
@@ -75,8 +77,4 @@ describe('DOS menu choices', () => {
         expect(nextAudioMode('off')).toBe('music');
     });
 
-    it('starts a rating at its first unsolved level', () => {
-        expect(firstUnsolvedLevel(1, 2, 30, new Set([0, 1, 2]))).toEqual({ gameType: 1, groupIndex: 2, levelIndex: 3 });
-        expect(firstUnsolvedLevel(1, 2, 3, new Set([0, 1, 2]))).toEqual({ gameType: 1, groupIndex: 2, levelIndex: 0 });
-    });
 });

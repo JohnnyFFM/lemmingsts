@@ -8,18 +8,25 @@ import { GameTypes } from '@/game/game-types';
 import { CommandNuke } from '@/game/game-play/commands/command-nuke';
 import { CommandSelectSkill } from '@/game/game-play/commands/command-select-skill';
 import { SkillTypes } from '@/game/game-play/skill-types';
+import { decodeLevelCode, levelCode, LEVEL_CODE_LENGTH } from '@/game/level-codes';
+import { globalLevelIndex, levelMusicIndex } from '@/game/music';
 import { readLastLevel, readProgress, readSettings, recordCompletion, rememberLevel, saveSettings, suggestNextLevel, type LevelLocation } from '@/game/progress';
 import { hasLemmingsFiles, importLemmingsFiles } from '@/game/resources/file/game-file-store';
 import { MainImageSprites } from '@/game/resources/main-image-sprites';
 import { MenuFont } from '@/game/resources/menu-font';
 import { AudioPlayer } from '@/game/resources/sound/audio-player';
 import { SoundEffectsPlayer } from '@/game/resources/sound/sound-effects-player';
-import { buildLevelIntro, buildLevelList, buildLevelResult, buildTitleScreen, hitAt, type AudioMode } from '@/game/view/dos-screens';
+import { buildCodeEntry, buildLevelIntro, buildLevelList, buildLevelResult, buildTitleScreen, drawScrollerText, hitAt, type AudioMode } from '@/game/view/dos-screens';
 import { Stage } from '@/game/view/stage';
 
 const SETTINGS_KEY = 'lemmings.settings.v1';
 /** A second press on the panel's nuke button within this time confirms it. */
 const NUKE_CONFIRM_MS = 3000;
+/** The title scroller moves this many pixels per step, this often. */
+const SCROLL_STEP = 2, SCROLL_INTERVAL_MS = 50;
+const CREDITS = '    Lemmings  (c) 1991 DMA Design and Psygnosis  ...  Web engine by Thomas Zeugner and Paul O\'Brien  ...  ' +
+    'F1 plays the shown rating from level 1  ...  F2 enters a level code  ...  F3 changes the rating  ...  F4 changes the sound  ...  ' +
+    'During a level, hold the pause button to return here  ...  ';
 
 const SKILL_ORDER = [SkillTypes.CLIMBER, SkillTypes.FLOATER, SkillTypes.BOMBER, SkillTypes.BLOCKER,
     SkillTypes.BUILDER, SkillTypes.BASHER, SkillTypes.MINER, SkillTypes.DIGGER];
@@ -47,12 +54,14 @@ export function nextLevelLocation(location: LevelLocation, groupLengths: readonl
     return location;
 }
 
-/** The first unsolved level of a rating, or its first level once everything is solved. */
-export function firstUnsolvedLevel(gameType: number, groupIndex: number, groupLength: number, solved: ReadonlySet<number>): LevelLocation {
-    for (let index = 0; index < groupLength; index++) {
-        if (!solved.has(index)) return { gameType, groupIndex, levelIndex: index };
+/** The location of a 1-based level number across the whole game, or null past the end. */
+export function locationOfLevelNumber(levelNumber: number, gameType: number, groupLengths: readonly number[]): LevelLocation | null {
+    let remaining = levelNumber - 1;
+    for (let group = 0; group < groupLengths.length; group++) {
+        if (remaining < groupLengths[group]) return { gameType, groupIndex: group, levelIndex: remaining };
+        remaining -= groupLengths[group];
     }
-    return { gameType, groupIndex, levelIndex: 0 };
+    return null;
 }
 
 export default defineComponent({
@@ -83,6 +92,7 @@ export default defineComponent({
         let paused = false;
         let nukeArmedUntil = 0;
         let observer: ResizeObserver | null = null;
+        let scrollTimer: ReturnType<typeof setInterval> | null = null;
 
         function fitStage() {
             const bounds = container.value?.getBoundingClientRect();
@@ -92,6 +102,11 @@ export default defineComponent({
         function stopMusic() {
             music?.stop();
             music = null;
+        }
+
+        function stopScroller() {
+            if (scrollTimer !== null) clearInterval(scrollTimer);
+            scrollTimer = null;
         }
 
         function disposeGame() {
@@ -109,7 +124,7 @@ export default defineComponent({
             if (!resources || audioMode !== 'music' || !game) return;
             const generationAtStart = generation;
             try {
-                const player = await resources.getMusicPlayer(location.levelIndex % 20);
+                const player = await resources.getMusicPlayer(levelMusicIndex(globalLevelIndex(location.groupIndex, location.levelIndex, groupLengths)));
                 if (disposed || generationAtStart !== generation || !game || audioMode !== 'music') { player.stop(); return; }
                 stopMusic();
                 music = player;
@@ -154,37 +169,80 @@ export default defineComponent({
             return { sprites: titleSprites, font: menuFont };
         }
 
-        /** The DOS title screen; whatever is chosen there starts a new level or leaves the game. */
-        async function showTitle() {
+        /** Leave whatever was running and show a menu screen. */
+        function beginMenu(): number {
             const current = ++generation;
+            stopScroller();
             paused = true;
             music?.suspend();
             effects?.stop();
             game?.getGameTimer().suspend();
+            return current;
+        }
+
+        /** The DOS title screen; whatever is chosen there starts a new level or leaves the game. */
+        async function showTitle() {
+            const current = beginMenu();
             try {
                 const menu = await loadMenuResources();
                 if (!menu || !stage || disposed || current !== generation) return;
                 const { frame, hits } = buildTitleScreen(menu.sprites, { rating, audio: audioMode });
-                stage.setOverlay(frame, (x, y) => {
+                const activeStage = stage;
+                let offset = 0;
+                const onTap = (x: number, y: number) => {
                     if (disposed || current !== generation) return;
                     const action = hitAt(hits, x, y);
                     switch (action?.kind) {
-                        case 'play':
-                            void playLevel(firstUnsolvedLevel(GameTypes.LEMMINGS, rating, groupLengths[rating] ?? 0, solvedLevels(rating)));
-                            break;
-                        case 'levels': void showLevelList(); break;
+                        case 'play': void playLevel({ gameType: GameTypes.LEMMINGS, groupIndex: rating, levelIndex: 0 }); break;
+                        case 'levels': void showCodeEntry(); break;
                         case 'rating': rating = (rating + 1) % Math.max(1, groupLengths.length); void showTitle(); break;
                         case 'audio': setAudioMode(nextAudioMode(audioMode)); void showTitle(); break;
                         case 'setup': void router.push('/setup'); break;
                     }
-                });
+                };
+                activeStage.setOverlay(drawScrollerText(frame, menu.font, CREDITS, offset), onTap);
+                scrollTimer = setInterval(() => {
+                    if (disposed || current !== generation) { stopScroller(); return; }
+                    offset += SCROLL_STEP;
+                    activeStage.setOverlay(drawScrollerText(frame, menu.font, CREDITS, offset), onTap);
+                }, SCROLL_INTERVAL_MS);
             } catch (reason) {
                 if (current === generation && !disposed) error.value = reason instanceof Error ? reason.message : 'Could not show the menu.';
             }
         }
 
+        /** The F2 screen: type a level code on the tap keyboard, or go to the list instead. */
+        async function showCodeEntry(typed = '', notice = '') {
+            const current = beginMenu();
+            try {
+                const menu = await loadMenuResources();
+                if (!menu || !stage || disposed || current !== generation) return;
+                const { frame, hits } = buildCodeEntry(menu.font, typed, notice);
+                stage.setOverlay(frame, (x, y) => {
+                    if (disposed || current !== generation) return;
+                    const action = hitAt(hits, x, y);
+                    switch (action?.kind) {
+                        case 'letter': if (typed.length < LEVEL_CODE_LENGTH) void showCodeEntry(typed + action.letter); break;
+                        case 'delete': void showCodeEntry(typed.slice(0, -1)); break;
+                        case 'enter': submitCode(typed); break;
+                        case 'list': void showLevelList(); break;
+                        case 'back': void showTitle(); break;
+                    }
+                });
+            } catch (reason) {
+                if (current === generation && !disposed) error.value = reason instanceof Error ? reason.message : 'Could not show the code screen.';
+            }
+        }
+
+        function submitCode(typed: string) {
+            const decoded = decodeLevelCode(typed);
+            const target = decoded ? locationOfLevelNumber(decoded.levelNumber, GameTypes.LEMMINGS, groupLengths) : null;
+            if (!target) { void showCodeEntry('', 'Not a valid code'); return; }
+            void playLevel(target);
+        }
+
         async function showLevelList() {
-            const current = ++generation;
+            const current = beginMenu();
             try {
                 const menu = await loadMenuResources();
                 if (!menu || !resources || !stage) return;
@@ -221,6 +279,7 @@ export default defineComponent({
 
         async function playLevel(next: LevelLocation) {
             const current = ++generation;
+            stopScroller();
             disposeGame();
             error.value = '';
             try {
@@ -279,13 +338,17 @@ export default defineComponent({
                     stopMusic();
                     const succeeded = result.state === GameStateTypes.SUCCEEDED;
                     if (succeeded) recordCompletion(location.gameType, location.groupIndex, location.levelIndex, result.survivorPercentage, 'dos');
+                    const following = nextLevelLocation(location, groupLengths);
+                    const unlocked = succeeded && (following.groupIndex !== location.groupIndex || following.levelIndex !== location.levelIndex)
+                        ? globalLevelIndex(following.groupIndex, following.levelIndex, groupLengths) + 1 : null;
                     const screen = buildLevelResult(font, {
                         rescuedPercent: result.survivorPercentage, neededPercent,
                         outOfTime: result.state === GameStateTypes.FAILED_OUT_OF_TIME, succeeded,
+                        accessCode: unlocked ? { levelNumber: unlocked, code: levelCode(unlocked, result.survivorPercentage) } : undefined,
                     });
                     activeStage.setOverlay(screen, () => {
                         if (disposed || current !== generation) return;
-                        void playLevel(succeeded ? nextLevelLocation(location, groupLengths) : location);
+                        void playLevel(succeeded ? following : location);
                     });
                 });
 
@@ -311,7 +374,7 @@ export default defineComponent({
                 if (!config) throw new Error('The game configuration is not available.');
                 groupLengths = config.level.order.map(group => group.length);
                 // Like the DOS game, open on the title screen, with the rating sign
-                // already showing where the player left off; F1 then continues from there.
+                // already showing where the player last played.
                 const next = suggestNextLevel(readLastLevel('dos'), readProgress('dos'), groupLengths);
                 rating = next ? next.groupIndex : 0;
                 await showTitle();
@@ -377,6 +440,7 @@ export default defineComponent({
         onBeforeUnmount(() => {
             disposed = true;
             ++generation;
+            stopScroller();
             disposeGame();
             stage?.dispose();
             stage = null;

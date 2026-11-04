@@ -13,7 +13,7 @@
     "audio.instructionsOffset"  : 2926,
     "audio.soundIndexTablePosition"    : 21989,
     "audio.soundDataOffset"     : 21731,
-    "audio.numberOfTracks"      : 20,
+    "audio.numberOfTracks"      : 21,
 
     "level.filePrefix"         : "LEVEL",
     "level.groups"             : ["Fun", "Tricky", "Taxing", "Mayhem"],

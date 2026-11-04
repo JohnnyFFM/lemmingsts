@@ -66,7 +66,8 @@ export function buildTitleScreen(sprites: MainImageSprites, state: TitleScreenSt
 }
 
 const LIST_COLUMNS = 2, LIST_ROWS = 15, LIST_TOP = 3 * LINE, LIST_COLUMN_WIDTH = DOS_SCREEN_WIDTH / LIST_COLUMNS;
-const NAME_LENGTH = 16, BACK_Y = 22 * LINE;
+/** "nn " plus the name must fit a 20-glyph column with a one-glyph margin each side. */
+const NAME_LENGTH = 15, BACK_Y = 22 * LINE;
 const DONE_COLOR = ColorPalette.colorFromRGB(0, 176, 0);
 
 /** The level list for one rating: two columns in the menu font, with a green mark on solved levels. */
@@ -78,7 +79,7 @@ export function buildLevelList(sprites: MainImageSprites, font: MenuFont, rating
     const hits: HitArea<LevelListAction>[] = [];
     names.slice(0, LIST_COLUMNS * LIST_ROWS).forEach((name, index) => {
         const column = Math.floor(index / LIST_ROWS), row = index % LIST_ROWS;
-        const x = column * LIST_COLUMN_WIDTH + 2 * MENU_GLYPH_WIDTH, y = LIST_TOP + row * LINE;
+        const x = column * LIST_COLUMN_WIDTH + MENU_GLYPH_WIDTH, y = LIST_TOP + row * LINE;
         font.drawText(screen, `${String(index + 1).padStart(2)} ${name.slice(0, NAME_LENGTH)}`, x, y);
         if (solved.has(index)) {
             for (let py = 5; py < 11; py++) for (let px = 5; px < 11; px++) screen.setPixel(x - MENU_GLYPH_WIDTH + px, y + py, DONE_COLOR);
@@ -108,6 +109,8 @@ export interface LevelResultInfo {
     neededPercent: number;
     outOfTime: boolean;
     succeeded: boolean;
+    /** The access code of the level just unlocked, shown as the DOS game did. */
+    accessCode?: { levelNumber: number; code: string };
 }
 
 export function createDosScreen(): Frame {
@@ -159,6 +162,72 @@ export function buildLevelResult(font: MenuFont, info: LevelResultInfo): Frame {
         [second, 10 * LINE],
         [info.succeeded ? 'Press mouse button for next level' : 'Press mouse button to retry level', 20 * LINE],
     ];
+    if (info.accessCode) {
+        lines.push([`Your Access Code for Level ${info.accessCode.levelNumber}`, 14 * LINE], [`is ${info.accessCode.code}`, 15 * LINE]);
+    }
     for (const [text, y] of lines) font.drawCentered(screen, text, y);
     return screen;
+}
+
+export type CodeEntryAction = { kind: 'letter'; letter: string } | { kind: 'delete' } | { kind: 'enter' } | { kind: 'list' } | { kind: 'back' };
+
+/** Codes only ever use these letters, so the keyboard needs no more. */
+const CODE_KEY_ROWS = ['ABCDEFGHI', 'JKLMNOPQR', 'STUVWXY'];
+const KEY_WIDTH = 3 * MENU_GLYPH_WIDTH, KEY_HEIGHT = 2 * LINE, KEYS_TOP = 11 * LINE;
+const CODE_Y = 6 * LINE, CODE_SLOTS = 10;
+
+/** The level-code entry screen with a tap keyboard in place of the DOS prompt. */
+export function buildCodeEntry(font: MenuFont, typed: string, message = ''): { frame: Frame; hits: HitArea<CodeEntryAction>[] } {
+    const screen = createDosScreen();
+    const hits: HitArea<CodeEntryAction>[] = [];
+    font.drawCentered(screen, 'Enter Level Code', 2 * LINE);
+    const slots = typed.toUpperCase().padEnd(CODE_SLOTS, '-').slice(0, CODE_SLOTS);
+    font.drawCentered(screen, slots.split('').join(' '), CODE_Y);
+    if (message) font.drawCentered(screen, message, 8 * LINE);
+
+    const keyRows = CODE_KEY_ROWS.map(row => row.split('').map(letter => ({ label: letter, action: { kind: 'letter', letter } as CodeEntryAction })));
+    keyRows[2].push({ label: 'DEL', action: { kind: 'delete' } }, { label: 'OK', action: { kind: 'enter' } });
+    keyRows.forEach((keys, row) => {
+        const y = KEYS_TOP + row * KEY_HEIGHT;
+        const left = Math.floor((screen.width - keys.length * KEY_WIDTH) / 2);
+        keys.forEach((key, column) => {
+            const x = left + column * KEY_WIDTH;
+            font.drawText(screen, key.label, x + Math.floor((KEY_WIDTH - key.label.length * MENU_GLYPH_WIDTH) / 2), y + Math.floor((KEY_HEIGHT - LINE) / 2));
+            hits.push({ x, y, width: KEY_WIDTH, height: KEY_HEIGHT, action: key.action });
+        });
+    });
+
+    const footerY = 21 * LINE;
+    font.drawText(screen, 'Back', 2 * MENU_GLYPH_WIDTH, footerY);
+    hits.push({ x: 0, y: footerY - LINE, width: screen.width / 2, height: 3 * LINE, action: { kind: 'back' } });
+    font.drawText(screen, 'Level list', screen.width - 12 * MENU_GLYPH_WIDTH, footerY);
+    hits.push({ x: screen.width / 2, y: footerY - LINE, width: screen.width / 2, height: 3 * LINE, action: { kind: 'list' } });
+    return { frame: screen, hits };
+}
+
+/** The reel on the title screen; credits scroll through it. */
+export const SCROLLER = { x: 96, y: SCROLLER_Y, width: 448, height: LINE } as const;
+
+/** Draw scrolling text into the reel of a title screen copy; `offset` is how far the text has travelled, in pixels. */
+export function drawScrollerText(base: Frame, font: MenuFont, text: string, offset: number): Frame {
+    const frame = new Frame(base.width, base.height);
+    frame.getBuffer().set(base.getBuffer());
+    frame.getMask().set(base.getMask());
+    const textWidth = text.length * MENU_GLYPH_WIDTH;
+    const period = textWidth + SCROLLER.width;
+    const start = SCROLLER.x + SCROLLER.width - (((offset % period) + period) % period);
+    for (let index = 0; index < text.length; index++) {
+        const x = start + index * MENU_GLYPH_WIDTH;
+        if (x + MENU_GLYPH_WIDTH <= SCROLLER.x || x >= SCROLLER.x + SCROLLER.width) continue;
+        const glyph = font.getGlyph(text[index]);
+        if (!glyph) continue;
+        const data = glyph.getBuffer(), mask = glyph.getMask();
+        for (let gy = 0; gy < glyph.height; gy++) for (let gx = 0; gx < glyph.width; gx++) {
+            const px = x + gx;
+            if (px < SCROLLER.x || px >= SCROLLER.x + SCROLLER.width) continue;
+            const i = gy * glyph.width + gx;
+            if (mask[i]) frame.setPixel(px, SCROLLER.y + gy, data[i]);
+        }
+    }
+    return frame;
 }
