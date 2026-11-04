@@ -466,6 +466,9 @@ export class GlPresenter {
     private drawLayer(program: Program, layer: PresentLayer, frame: PresentFrame, sampled: WebGLTexture, previous: WebGLTexture | null): void {
         const gl = this.gl!;
         const scaleX = this.canvas.width / frame.width, scaleY = this.canvas.height / frame.height;
+        // The analysis passes may have left an off-screen target and its small viewport bound.
+        gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+        gl.viewport(0, 0, this.canvas.width, this.canvas.height);
         gl.useProgram(program.program);
         this.bindQuadAttributes(program);
         gl.activeTexture(gl.TEXTURE0);
