@@ -1,3 +1,52 @@
+# DOS Lemmings for tablets
+
+**No Lemmings game files are included in this repository. To play, you need your own licensed copy of the DOS game.**
+
+A personal port of the original 1991 DOS Lemmings for Android tablets and phones, installed as a web app:
+https://johnnyffm.github.io/lemmingsts/
+
+It opens straight on the DOS title screen and shows nothing but the game: the original panel, the purple
+preview, result and title screens drawn from your MAIN.DAT, the real level access codes, the DOS music
+rotation and all 120 levels, with pixel-exact physics from the engine below. Nothing of the web page
+around the game remains.
+
+This is a fork of Paul O'Brien's [lemmingsts](https://github.com/paulobrien/lemmingsts), itself built on
+Thomas Zeugner's [Lemmings.ts](https://github.com/tomsoftware/Lemmings.ts). They supplied the engine, the
+DOS data readers, the rendering and the AdLib playback; this fork adds the DOS-only presentation on top.
+The branch `dos-android` is this app; `main` tracks upstream, and upstream changes are merged in from there.
+
+## Install
+
+1. Open the link above in Chrome on the tablet and choose **Install app** from the menu.
+2. Open the installed app and pick your DOS game files once, as a ZIP or the `.dat` files. They stay in the
+   browser's storage on that device and are never uploaded.
+3. Play offline from then on. After an update, close the app fully and open it again to get the new build.
+
+## Controls
+
+- **Title screen:** F1 plays the shown rating from level 1, F2 enters a level code (with a tap keyboard and a
+  level list), F3 changes the rating, F4 cycles music, effects only and silence, the Exit sign offers changing
+  the game files and erasing progress.
+- **Level:** tap a lemming to assign the selected skill, drag or touch-and-hold to move the view, pinch to zoom,
+  tap or drag the minimap to jump. The panel buttons work as in DOS; the nuke needs two presses.
+- **Hold the pause button** for the title screen.
+- **Tap the TIME readout** for fast forward (4x), tap again for normal speed. The F key does the same.
+- **Hold the NEED/OUT/IN readouts** to cycle the display filter: Sharp, Smooth (xBR), ScaleFX, CRT, Scanlines.
+  The edge filters smooth the terrain only, so lemmings stay crisp and the ground never shimmers.
+
+## Development
+
+`npm ci`, then `npm run dev` for a local server, `npm run typecheck` and `npm test` for the checks. The original
+management page of upstream is still reachable at `/setup` for imports and backups, including the Windows edition.
+Pushing to `dos-android` deploys to GitHub Pages through `.github/workflows/pages.yml`.
+
+Licences: the engine is MIT; the AdLib OPL emulation is GPL-2.0-or-later (see upstream's notes below); the xBR
+and ScaleFX shaders are MIT, after Hyllian and Sp00kyFox. The app icon is original pixel art.
+
+---
+
+# Upstream README (lemmingsts)
+
 # Lemmings TS
 
 **No Lemmings game files are included in this repository. To play, you need your own licensed copy of the Windows or DOS game.**
