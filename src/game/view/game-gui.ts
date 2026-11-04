@@ -18,6 +18,8 @@ export const DOS_MINIMAP = { x: 208, y: 18, width: 104, height: 20 } as const;
 const MINIMAP_TERRAIN_REFRESH_TICKS = 4;
 /** Holding the pause button this long opens the menu. */
 const MENU_HOLD_MS = 700;
+/** The DOS readout row draws "Time" from this panel x; a tap from here on toggles fast forward. */
+export const TIME_READOUT_X = 240;
 const MINIMAP_TERRAIN_RGB = [0x30, 0xa0, 0x30] as const;
 const MINIMAP_LEMMING_RGB = [0xe0, 0xff, 0x80] as const;
 const MINIMAP_VIEW_RGB = [0xff, 0xff, 0xff] as const;
@@ -48,7 +50,9 @@ export class GameGui {
     private display?: DisplayImage;
     private deltaReleaseRate = 0;
     private nukeRequestHandler: (() => void) | null = null;
-    private fastForwardRequestHandler: (() => void) | null = null;
+    private fastForwardRequestHandler: (() => string | void) | null = null;
+    /** Where a press on the green readout row began, while it is held. */
+    private readoutPressX: number | null = null;
     private fastForwardActive = false;
     private windowsPanel: readonly Frame[] | null = null;
     private windowsNativePanel: readonly Frame[] | null = null;
@@ -84,7 +88,7 @@ export class GameGui {
         this.backgroundChanged = true;
     }
 
-    public setFastForwardRequestHandler(handler: (() => void) | null) {
+    public setFastForwardRequestHandler(handler: (() => string | void) | null) {
         this.fastForwardRequestHandler = handler;
     }
 
@@ -297,11 +301,14 @@ export class GameGui {
 
             if (e.y > 15) {
                 this.handleSkillMouseDown(e.x);
-            } else if (this.filterRequestHandler && !this.isWindowsLayout) {
-                // Holding the green readout row cycles the display filter.
+            } else if (!this.isWindowsLayout) {
+                // A tap on the TIME readout toggles fast forward; holding the row cycles the display filter.
+                this.readoutPressX = e.x;
+                if (!this.filterRequestHandler) return;
                 this.clearFilterHold();
                 this.filterHoldTimer = setTimeout(() => {
                     this.filterHoldTimer = null;
+                    this.readoutPressX = null;
                     const label = this.filterRequestHandler?.();
                     if (label) this.flashNotice(label);
                 }, MENU_HOLD_MS);
@@ -317,6 +324,13 @@ export class GameGui {
             this.deltaReleaseRate = 0;
             this.minimapDragging = false;
             this.clearMenuHold();
+            const tappedReadout = this.readoutPressX;
+            this.readoutPressX = null;
+            // Released before the hold fired: a plain tap. On the clock it toggles fast forward.
+            if (tappedReadout !== null && (this.filterHoldTimer !== null || !this.filterRequestHandler) && tappedReadout >= TIME_READOUT_X) {
+                const label = this.fastForwardRequestHandler?.();
+                if (label) this.flashNotice(label);
+            }
             this.clearFilterHold();
         })
 

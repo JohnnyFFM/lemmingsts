@@ -156,7 +156,7 @@ export class Game {
         this.gameGui.setFilterRequestHandler(handler);
     }
 
-    public setFastForwardRequestHandler(handler: (() => void) | null) {
+    public setFastForwardRequestHandler(handler: (() => string | void) | null) {
         this.gameGui.setFastForwardRequestHandler(handler);
     }
 

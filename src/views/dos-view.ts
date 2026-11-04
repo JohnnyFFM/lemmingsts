@@ -40,6 +40,8 @@ export function nextFilter(filter: FilterName): FilterName {
 }
 /** A second press on the panel's nuke button within this time confirms it. */
 const NUKE_CONFIRM_MS = 3000;
+/** Fast forward runs the level this many times faster, as the Windows edition did. */
+const FAST_FORWARD_SPEED = 4;
 /** The title scroller moves this many pixels per step, this often. */
 const SCROLL_STEP = 2, SCROLL_INTERVAL_MS = 50;
 const CREDITS = '    Lemmings  (c) 1991 DMA Design and Psygnosis  ...  Web engine by Thomas Zeugner and Paul O\'Brien  ...  ' +
@@ -125,6 +127,7 @@ export default defineComponent({
         let observer: ResizeObserver | null = null;
         let scrollTimer: ReturnType<typeof setInterval> | null = null;
         let presenter: GlPresenter | null = null;
+        let fastForward = false;
         let filter = readFilter();
         let lastFrame: PresentFrame | null = null;
 
@@ -148,6 +151,23 @@ export default defineComponent({
             saveFilter(next);
             if (lastFrame) presentFrame(lastFrame);
             else stage?.redraw();
+        }
+
+        /** A tap on the panel's clock (or the F key) runs the level at four times speed; a second one restores it. */
+        function toggleFastForward(): string {
+            if (!game) return '';
+            fastForward = !fastForward;
+            game.getGameTimer().speedFactor = fastForward ? FAST_FORWARD_SPEED : 1;
+            return fastForward ? 'FAST FORWARD' : 'NORMAL SPEED';
+        }
+
+        function onKeyDown(event: KeyboardEvent) {
+            if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey || event.repeat) return;
+            if (event.key === 'f' || event.key === 'F') {
+                if (!game || paused) return;
+                event.preventDefault();
+                toggleFastForward();
+            }
         }
 
         /** Holding the panel's green row cycles the filter; its name is flashed there. */
@@ -397,6 +417,8 @@ export default defineComponent({
                 game.setNukeRequestHandler(confirmNuke);
                 game.setMenuRequestHandler(() => void showTitle());
                 game.setFilterRequestHandler(cycleFilter);
+                fastForward = false;
+                game.setFastForwardRequestHandler(toggleFastForward);
 
                 const activeResources = nextResources;
                 effects = audioMode !== 'off' ? new SoundEffectsPlayer(index => activeResources.getSoundTrack(index)) : null;
@@ -519,6 +541,7 @@ export default defineComponent({
                 observer.observe(container.value);
             }
             window.addEventListener('resize', fitStage);
+            window.addEventListener('keydown', onKeyDown);
             document.addEventListener('visibilitychange', onVisibilityChange);
             fitStage();
             void boot();
@@ -535,6 +558,7 @@ export default defineComponent({
             presenter = null;
             observer?.disconnect();
             window.removeEventListener('resize', fitStage);
+            window.removeEventListener('keydown', onKeyDown);
             document.removeEventListener('visibilitychange', onVisibilityChange);
         });
 
