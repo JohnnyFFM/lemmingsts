@@ -151,6 +151,11 @@ export class Game {
         this.gameGui.setMenuRequestHandler(handler);
     }
 
+    /** Called when the player holds the panel's green readout row; a returned label is flashed there. */
+    public setFilterRequestHandler(handler: (() => string | void) | null) {
+        this.gameGui.setFilterRequestHandler(handler);
+    }
+
     public setFastForwardRequestHandler(handler: (() => void) | null) {
         this.gameGui.setFastForwardRequestHandler(handler);
     }
@@ -216,6 +221,7 @@ export class Game {
         this.gameGui.setNukeRequestHandler(null);
         this.gameGui.setFastForwardRequestHandler(null);
         this.gameGui.setMenuRequestHandler(null);
+        this.gameGui.setFilterRequestHandler(null);
         this.gameGui.setMinimapNavigationHandler(null);
         this.gameGui.setViewportProvider(null);
         this.triggerManager.onSoundEffect.dispose();

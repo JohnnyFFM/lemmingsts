@@ -3,6 +3,7 @@
     <canvas ref="gameCanvas" width="1067" height="600" tabindex="0" aria-label="Lemmings">
       Your browser does not support the game canvas.
     </canvas>
+    <canvas v-show="filterActive" ref="filterCanvas" class="filter" width="1067" height="600" aria-hidden="true"></canvas>
     <div v-if="setupNeeded" class="setup" role="dialog" aria-labelledby="setup-title">
       <h1 id="setup-title">Lemmings</h1>
       <p>Choose your original DOS game files once. They stay on this device.</p>
@@ -22,6 +23,8 @@
 <style scoped>
 .dos-app { position: fixed; inset: 0; overflow: hidden; background: #000; }
 canvas { display: block; width: 100%; height: 100%; image-rendering: pixelated; touch-action: none; outline: none; -webkit-user-select: none; user-select: none; }
+/* The filtered picture sits over the plain one; touches fall through to the canvas beneath. */
+canvas.filter { position: absolute; inset: 0; pointer-events: none; image-rendering: auto; }
 .setup { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1rem; padding: 1.5rem; text-align: center; color: #e8e8e8; background: #000; font-family: monospace; }
 .setup h1 { margin: 0; font-size: 2rem; color: #58d858; }
 .setup p { margin: 0; max-width: 32rem; }

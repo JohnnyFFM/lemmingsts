@@ -17,9 +17,28 @@ import { MenuFont } from '@/game/resources/menu-font';
 import { AudioPlayer } from '@/game/resources/sound/audio-player';
 import { SoundEffectsPlayer } from '@/game/resources/sound/sound-effects-player';
 import { buildCodeEntry, buildLevelIntro, buildLevelList, buildLevelResult, buildTitleScreen, drawScrollerText, hitAt, type AudioMode } from '@/game/view/dos-screens';
+import { FILTER_LABELS, FILTERS, GlPresenter, type FilterName, type PresentFrame } from '@/game/view/gl-presenter';
 import { Stage } from '@/game/view/stage';
 
 const SETTINGS_KEY = 'lemmings.settings.v1';
+const FILTER_KEY = 'lemmings.dos-filter.v1';
+
+/** The saved display filter, or the plain sharp pixels. */
+export function readFilter(): FilterName {
+    try {
+        const saved = localStorage.getItem(FILTER_KEY);
+        return FILTERS.includes(saved as FilterName) ? saved as FilterName : 'sharp';
+    } catch { return 'sharp'; }
+}
+
+export function saveFilter(filter: FilterName): void {
+    try { localStorage.setItem(FILTER_KEY, filter); } catch { /* preferences are optional */ }
+}
+
+/** The filter after `filter`, wrapping round. */
+export function nextFilter(filter: FilterName): FilterName {
+    return FILTERS[(FILTERS.indexOf(filter) + 1) % FILTERS.length];
+}
 /** A second press on the panel's nuke button within this time confirms it. */
 const NUKE_CONFIRM_MS = 3000;
 /** The title scroller moves this many pixels per step, this often. */
@@ -81,7 +100,9 @@ export default defineComponent({
         const router = useRouter();
         const container = ref<HTMLElement | null>(null);
         const gameCanvas = ref<HTMLCanvasElement | null>(null);
+        const filterCanvas = ref<HTMLCanvasElement | null>(null);
         const fileInput = ref<HTMLInputElement | null>(null);
+        const filterActive = ref(false);
         const setupNeeded = ref(false);
         const busy = ref(false);
         const message = ref('');
@@ -105,10 +126,37 @@ export default defineComponent({
         let nukeArmedUntil = 0;
         let observer: ResizeObserver | null = null;
         let scrollTimer: ReturnType<typeof setInterval> | null = null;
+        let presenter: GlPresenter | null = null;
+        let filter = readFilter();
+        let lastFrame: PresentFrame | null = null;
 
         function fitStage() {
             const bounds = container.value?.getBoundingClientRect();
-            if (stage && bounds?.width && bounds.height) stage.setDosViewport(bounds.width, bounds.height);
+            if (stage && bounds?.width && bounds.height) {
+                presenter?.resize(bounds.width, bounds.height, window.devicePixelRatio || 1);
+                stage.setDosViewport(bounds.width, bounds.height);
+            }
+        }
+
+        /** Redraw the last composition through the presenter, or fall back to the plain canvas. */
+        function presentFrame(frame: PresentFrame) {
+            lastFrame = frame;
+            if (!presenter?.supported || filter === 'sharp') { filterActive.value = false; return; }
+            filterActive.value = presenter.present(frame, filter);
+        }
+
+        function applyFilter(next: FilterName) {
+            filter = next;
+            saveFilter(next);
+            if (lastFrame) presentFrame(lastFrame);
+            else stage?.redraw();
+        }
+
+        /** Holding the panel's green row cycles the filter; its name is flashed there. */
+        function cycleFilter(): string {
+            const next = presenter?.supported ? nextFilter(filter) : 'sharp';
+            applyFilter(next);
+            return presenter?.supported ? FILTER_LABELS[next] : 'NO FILTER SUPPORT';
         }
 
         function stopMusic() {
@@ -328,6 +376,7 @@ export default defineComponent({
                 }
                 game.setNukeRequestHandler(confirmNuke);
                 game.setMenuRequestHandler(() => void showTitle());
+                game.setFilterRequestHandler(cycleFilter);
 
                 const activeResources = nextResources;
                 effects = audioMode !== 'off' ? new SoundEffectsPlayer(index => activeResources.getSoundTrack(index)) : null;
@@ -441,6 +490,8 @@ export default defineComponent({
         onMounted(() => {
             if (!gameCanvas.value) return;
             stage = new Stage(gameCanvas.value);
+            if (filterCanvas.value) presenter = new GlPresenter(filterCanvas.value);
+            stage.onPresent.on(frame => { if (frame) presentFrame(frame); });
             if (typeof ResizeObserver !== 'undefined' && container.value) {
                 observer = new ResizeObserver(fitStage);
                 observer.observe(container.value);
@@ -458,11 +509,13 @@ export default defineComponent({
             disposeGame();
             stage?.dispose();
             stage = null;
+            presenter?.dispose();
+            presenter = null;
             observer?.disconnect();
             window.removeEventListener('resize', fitStage);
             document.removeEventListener('visibilitychange', onVisibilityChange);
         });
 
-        return { container, gameCanvas, fileInput, setupNeeded, busy, message, error, chooseFiles, onFilesSelected, retry, requestImmersive };
+        return { container, gameCanvas, filterCanvas, filterActive, fileInput, setupNeeded, busy, message, error, chooseFiles, onFilesSelected, retry, requestImmersive };
     },
 });

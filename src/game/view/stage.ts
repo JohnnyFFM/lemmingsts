@@ -2,6 +2,7 @@ import { Position2D } from '../utilities/position2d';
 import { EventHandler } from '../utilities/event-handler';
 import { Frame } from '../resources/frame';
 import { DisplayImage } from './display-image';
+import type { PresentFrame, PresentLayer } from './gl-presenter';
 import { StageImageProperties } from './stage-image-properties';
 import { UserInputManager } from './user-input-manager';
 
@@ -55,6 +56,8 @@ export class Stage {
     public readonly onGraphicsError = new EventHandler<string>();
     /** True when the playfield is away from its starting scale. */
     public readonly onZoomChange = new EventHandler<boolean>();
+    /** Raised after each composition with what was drawn, for a filtering presenter to redraw. */
+    public readonly onPresent = new EventHandler<PresentFrame>();
     private readonly defaultZoom: number;
     private fittedZoom: number;
     private customZoom = false;
@@ -390,7 +393,40 @@ export class Stage {
             this.draw(image, frame);
             this.drawScrollbar();
             this.drawMinimap();
+            this.present();
         });
+    }
+
+    /** Describe the current composition so a presenter can redraw it from the source pixels. */
+    public buildPresentFrame(): PresentFrame {
+        const layers: PresentLayer[] = [];
+        if (this.overlay) {
+            const bounds = this.overlayBounds();
+            if (bounds) {
+                const { frame } = this.overlay;
+                layers.push({ pixels: { data: frame.getData(), width: frame.width, height: frame.height },
+                    source: { x: 0, y: 0, width: frame.width, height: frame.height },
+                    dest: { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height } });
+            }
+            return { width: this.stageCav.width, height: this.stageCav.height, layers };
+        }
+        for (const image of [this.gameImgProps, this.guiImgProps]) {
+            const pixels = image.display?.getImageData();
+            if (!pixels || !pixels.width || !pixels.height) continue;
+            const scale = image.viewPoint.scale;
+            const offset = this.contentOffset(image);
+            const width = Math.min(pixels.width - image.viewPoint.x, image.width / scale);
+            const height = Math.min(pixels.height - image.viewPoint.y, image.height / scale);
+            if (width <= 0 || height <= 0) continue;
+            layers.push({ pixels: { data: pixels.data as Uint8ClampedArray, width: pixels.width, height: pixels.height },
+                source: { x: image.viewPoint.x, y: image.viewPoint.y, width, height },
+                dest: { x: image.x + offset.x, y: image.y + offset.y, width: width * scale, height: height * scale } });
+        }
+        return { width: this.stageCav.width, height: this.stageCav.height, layers };
+    }
+
+    private present(): void {
+        this.onPresent.trigger(this.buildPresentFrame());
     }
 
     private cancelPress(): void {
@@ -812,7 +848,7 @@ export class Stage {
         this.draw(stageImage, gameImg);
 
         if (stageImage === this.gameImgProps) { this.drawScrollbar(); this.drawMinimap(); }
-
+        this.present();
     }
 
     private limitValue(minLimit: number, value: number, maxLimit: number): number {
@@ -893,6 +929,7 @@ export class Stage {
     public redraw() {
         if (this.overlay) {
             this.drawOverlay();
+            this.present();
             return;
         }
         if (this.gameImgProps.display) {
@@ -912,6 +949,7 @@ export class Stage {
         }
         this.drawScrollbar();
         this.drawMinimap();
+        this.present();
     }
 
 

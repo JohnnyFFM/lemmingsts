@@ -31,6 +31,10 @@ export class GameGui {
     private minimapNavigationHandler: ((x: number, y: number) => void) | null = null;
     private menuRequestHandler: (() => void) | null = null;
     private menuHoldTimer: ReturnType<typeof setTimeout> | null = null;
+    private filterRequestHandler: (() => string | void) | null = null;
+    private filterHoldTimer: ReturnType<typeof setTimeout> | null = null;
+    private noticeTimer: ReturnType<typeof setTimeout> | null = null;
+    private notice = '';
     private minimapDragging = false;
     private minimapTerrain: Uint8Array | null = null;
     /** Game ticks since the terrain was last sampled. */
@@ -114,6 +118,37 @@ export class GameGui {
     private clearMenuHold() {
         if (this.menuHoldTimer !== null) clearTimeout(this.menuHoldTimer);
         this.menuHoldTimer = null;
+    }
+
+    /** Called when the green status row is held down; a returned label is flashed in that row. */
+    public setFilterRequestHandler(handler: (() => string | void) | null) {
+        this.filterRequestHandler = handler;
+        this.clearFilterHold();
+    }
+
+    private clearFilterHold() {
+        if (this.filterHoldTimer !== null) clearTimeout(this.filterHoldTimer);
+        this.filterHoldTimer = null;
+    }
+
+    /** Show a short message in the panel's green row for a moment, then restore the readouts. */
+    public flashNotice(text: string, durationMs = 1500) {
+        if (this.noticeTimer !== null) clearTimeout(this.noticeTimer);
+        this.notice = text.toUpperCase().slice(0, 40);
+        this.drawNoticeRow();
+        this.noticeTimer = setTimeout(() => {
+            this.noticeTimer = null;
+            this.notice = '';
+            this.gameTimeChanged = true;
+            this.render();
+            this.display?.redraw();
+        }, durationMs);
+    }
+
+    private drawNoticeRow() {
+        if (!this.display || !this.notice) return;
+        this.drawGreenString(this.display, this.notice.padEnd(40), 0, 0);
+        this.display.redraw();
     }
 
     /** The minimap belongs to the DOS panel; the Windows toolbar draws its own. */
@@ -262,6 +297,14 @@ export class GameGui {
 
             if (e.y > 15) {
                 this.handleSkillMouseDown(e.x);
+            } else if (this.filterRequestHandler && !this.isWindowsLayout) {
+                // Holding the green readout row cycles the display filter.
+                this.clearFilterHold();
+                this.filterHoldTimer = setTimeout(() => {
+                    this.filterHoldTimer = null;
+                    const label = this.filterRequestHandler?.();
+                    if (label) this.flashNotice(label);
+                }, MENU_HOLD_MS);
             }
         });
 
@@ -274,6 +317,7 @@ export class GameGui {
             this.deltaReleaseRate = 0;
             this.minimapDragging = false;
             this.clearMenuHold();
+            this.clearFilterHold();
         })
 
         this.display.onDoubleClick.on((e) => {
@@ -369,6 +413,8 @@ export class GameGui {
                 this.drawGreenString(display, field.padStart(field.length + leftPadding).padEnd(10), index * 80, 0);
             });
             this.gameTimeChanged = false;
+        } else if (this.notice) {
+            this.drawGreenString(display, this.notice.padEnd(40), 0, 0);
         } else {
             this.drawGreenString(display, `Need ${target}`, 0, 0);
             this.drawGreenString(display, 'Out ' + this.gameVictoryCondition.getOutCount() + '  ', 112, 0);
