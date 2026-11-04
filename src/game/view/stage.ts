@@ -140,8 +140,12 @@ export class Stage {
      * the picture reports its position in the picture's own pixels.
      */
     public setOverlay(frame: Frame | null, onTap: ((x: number, y: number) => void) | null = null): void {
-        this.cancelPress();
-        this.controller.cancelActive();
+        // Re-drawing the same screen (an animation step) must not swallow a touch in progress.
+        const sameScreen = !!frame && !!this.overlay && this.overlay.onTap === onTap && this.overlay.frame.width === frame.width && this.overlay.frame.height === frame.height;
+        if (!sameScreen) {
+            this.cancelPress();
+            this.controller.cancelActive();
+        }
         if (!frame) {
             this.overlay = null;
             this.redraw();
@@ -415,8 +419,10 @@ export class Stage {
             if (!pixels || !pixels.width || !pixels.height) continue;
             const scale = image.viewPoint.scale;
             const offset = this.contentOffset(image);
-            const width = Math.min(pixels.width - image.viewPoint.x, image.width / scale);
-            const height = Math.min(pixels.height - image.viewPoint.y, image.height / scale);
+            // The panel is always shown whole; its rounded height must not clip its last row.
+            const whole = image === this.guiImgProps;
+            const width = whole ? pixels.width : Math.min(pixels.width - image.viewPoint.x, image.width / scale);
+            const height = whole ? pixels.height : Math.min(pixels.height - image.viewPoint.y, image.height / scale);
             if (width <= 0 || height <= 0) continue;
             layers.push({ pixels: { data: pixels.data as Uint8ClampedArray, width: pixels.width, height: pixels.height },
                 source: { x: image.viewPoint.x, y: image.viewPoint.y, width, height },

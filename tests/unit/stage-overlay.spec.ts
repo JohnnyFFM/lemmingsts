@@ -56,6 +56,25 @@ describe('stage overlay', () => {
         vi.restoreAllMocks();
     });
 
+    it('keeps a tap alive while the same screen is redrawn for an animation, but not across a different screen', () => {
+        const { canvas, stage } = setup();
+        const tap = vi.fn();
+        stage.setOverlay(new Frame(640, 400), tap);
+        pointer(canvas, 'pointerdown', 400, 240);
+        stage.setOverlay(new Frame(640, 400), tap);   // a scroller step while the finger is down
+        stage.setOverlay(new Frame(640, 400), tap);
+        pointer(canvas, 'pointerup', 400, 240);
+        expect(tap).toHaveBeenCalledOnce();
+        const other = vi.fn();
+        pointer(canvas, 'pointerdown', 400, 240);
+        stage.setOverlay(new Frame(640, 400), other); // a new screen replaces the old one mid-press
+        pointer(canvas, 'pointerup', 400, 240);
+        expect(other).not.toHaveBeenCalled();
+        expect(tap).toHaveBeenCalledOnce();
+        stage.dispose();
+        vi.restoreAllMocks();
+    });
+
     it('keeps a tap on the picture alive across a relayout, while a level press is cancelled', () => {
         const { canvas, stage, click } = setup();
         stage.setDosViewport(1600, 900);
