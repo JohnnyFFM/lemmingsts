@@ -8,13 +8,14 @@
       <h1 id="setup-title">Lemmings</h1>
       <p>Choose your original DOS game files once. They stay on this device.</p>
       <button type="button" :disabled="busy" @click="chooseFiles">{{ busy ? 'Reading…' : 'Choose LEMMING.zip or the .dat files' }}</button>
-      <input ref="fileInput" class="visually-hidden" type="file" multiple accept=".zip,.dat,application/zip" tabindex="-1" aria-hidden="true" @change="onFilesSelected">
       <p v-if="message" class="message" role="alert">{{ message }}</p>
     </div>
     <div v-else-if="error" class="setup" role="alert">
       <p class="message">{{ error }}</p>
       <button type="button" @click="retry">Try again</button>
     </div>
+    <!-- Always present: the in-game exit screen also opens it to change the game files. -->
+    <input ref="fileInput" class="visually-hidden" type="file" multiple accept=".zip,.dat,application/zip" tabindex="-1" aria-hidden="true" @change="onFilesSelected">
   </div>
 </template>
 

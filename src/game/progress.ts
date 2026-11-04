@@ -169,6 +169,19 @@ export function saveSettings(settings: GameSettings): boolean {
     return restored ? writeJson(RESTORED_STATE_KEY, { ...restored, settings: cleanSettings }) : writeJson(SETTINGS_KEY, cleanSettings);
 }
 
+/** Forget every DOS completion and the last level played; returns false when storage is unavailable. */
+export function clearDosProgress(): boolean {
+    try {
+        const restored = restoredState();
+        if (restored) writeJson(RESTORED_STATE_KEY, { ...restored, progress: [], lastLevel: null });
+        localStorage.removeItem(PROGRESS_KEY);
+        localStorage.removeItem(LAST_LEVEL_KEY);
+        return true;
+    } catch {
+        return false;
+    }
+}
+
 export function readLastLevel(edition: ProgressEdition = 'dos'): LevelLocation | null {
     const restored = restoredState();
     if (restored) return edition === 'dos' ? restored.lastLevel : restored.version === 2 ? restored.windowsLastLevel : null;

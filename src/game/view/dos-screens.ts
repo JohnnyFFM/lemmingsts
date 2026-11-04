@@ -205,6 +205,31 @@ export function buildCodeEntry(font: MenuFont, typed: string, message = ''): { f
     return { frame: screen, hits };
 }
 
+export type ExitAction = { kind: 'files' } | { kind: 'erase' } | { kind: 'confirm-erase' } | { kind: 'back' };
+
+/** What the Exit sign leads to: the few things the game itself cannot do, in its own style. */
+export function buildExitScreen(font: MenuFont, confirmErase = false, notice = ''): { frame: Frame; hits: HitArea<ExitAction>[] } {
+    const screen = createDosScreen();
+    const hits: HitArea<ExitAction>[] = [];
+    const option = (text: string, y: number, action: ExitAction) => {
+        font.drawCentered(screen, text, y);
+        hits.push({ x: 0, y: y - LINE / 2, width: screen.width, height: 2 * LINE, action });
+    };
+    if (confirmErase) {
+        font.drawCentered(screen, 'Erase all progress?', 5 * LINE);
+        font.drawCentered(screen, 'Every solved level is forgotten.', 7 * LINE);
+        option('Yes, erase it', 11 * LINE, { kind: 'confirm-erase' });
+        option('No, keep it', 14 * LINE, { kind: 'back' });
+        return { frame: screen, hits };
+    }
+    font.drawCentered(screen, 'There is no DOS to exit to', 3 * LINE);
+    if (notice) font.drawCentered(screen, notice, 6 * LINE);
+    option('Change game files', 10 * LINE, { kind: 'files' });
+    option('Erase progress', 13 * LINE, { kind: 'erase' });
+    option('Back to the game', 18 * LINE, { kind: 'back' });
+    return { frame: screen, hits };
+}
+
 /** The reel on the title screen; credits scroll through it. */
 export const SCROLLER = { x: 96, y: SCROLLER_Y, width: 448, height: LINE } as const;
 

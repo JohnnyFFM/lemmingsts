@@ -1,5 +1,4 @@
 import { defineComponent, onBeforeUnmount, onMounted, ref } from 'vue';
-import { useRouter } from 'vue-router';
 import { Game } from '@/game/game';
 import { GameFactory } from '@/game/game-factory';
 import { GameResources } from '@/game/game-resources';
@@ -10,13 +9,13 @@ import { CommandSelectSkill } from '@/game/game-play/commands/command-select-ski
 import { SkillTypes } from '@/game/game-play/skill-types';
 import { decodeLevelCode, levelCode, LEVEL_CODE_LENGTH } from '@/game/level-codes';
 import { globalLevelIndex, levelMusicIndex } from '@/game/music';
-import { readLastLevel, readProgress, readSettings, recordCompletion, rememberLevel, saveSettings, suggestNextLevel, type LevelLocation } from '@/game/progress';
+import { clearDosProgress, readLastLevel, readProgress, readSettings, recordCompletion, rememberLevel, saveSettings, suggestNextLevel, type LevelLocation } from '@/game/progress';
 import { hasLemmingsFiles, importLemmingsFiles } from '@/game/resources/file/game-file-store';
 import { MainImageSprites } from '@/game/resources/main-image-sprites';
 import { MenuFont } from '@/game/resources/menu-font';
 import { AudioPlayer } from '@/game/resources/sound/audio-player';
 import { SoundEffectsPlayer } from '@/game/resources/sound/sound-effects-player';
-import { buildCodeEntry, buildLevelIntro, buildLevelList, buildLevelResult, buildTitleScreen, drawScrollerText, hitAt, type AudioMode } from '@/game/view/dos-screens';
+import { buildCodeEntry, buildExitScreen, buildLevelIntro, buildLevelList, buildLevelResult, buildTitleScreen, drawScrollerText, hitAt, type AudioMode } from '@/game/view/dos-screens';
 import { FILTER_LABELS, FILTERS, GlPresenter, type FilterName, type PresentFrame } from '@/game/view/gl-presenter';
 import { Stage } from '@/game/view/stage';
 
@@ -97,7 +96,6 @@ export function locationOfLevelNumber(levelNumber: number, gameType: number, gro
 
 export default defineComponent({
     setup() {
-        const router = useRouter();
         const container = ref<HTMLElement | null>(null);
         const gameCanvas = ref<HTMLCanvasElement | null>(null);
         const filterCanvas = ref<HTMLCanvasElement | null>(null);
@@ -257,7 +255,7 @@ export default defineComponent({
                         case 'levels': void showCodeEntry(); break;
                         case 'rating': rating = (rating + 1) % Math.max(1, groupLengths.length); void showTitle(); break;
                         case 'audio': setAudioMode(nextAudioMode(audioMode)); void showTitle(); break;
-                        case 'setup': void router.push('/setup'); break;
+                        case 'setup': void showExit(); break;
                     }
                 };
                 activeStage.setOverlay(drawScrollerText(frame, menu.font, CREDITS, offset), onTap);
@@ -268,6 +266,28 @@ export default defineComponent({
                 }, SCROLL_INTERVAL_MS);
             } catch (reason) {
                 if (current === generation && !disposed) error.value = reason instanceof Error ? reason.message : 'Could not show the menu.';
+            }
+        }
+
+        /** The Exit sign: the few chores the DOS game had no screen for, drawn in its style. */
+        async function showExit(confirmErase = false, notice = '') {
+            const current = beginMenu();
+            try {
+                const menu = await loadMenuResources();
+                if (!menu || !stage || disposed || current !== generation) return;
+                const { frame, hits } = buildExitScreen(menu.font, confirmErase, notice);
+                stage.setOverlay(frame, (x, y) => {
+                    if (disposed || current !== generation) return;
+                    const action = hitAt(hits, x, y);
+                    switch (action?.kind) {
+                        case 'files': chooseFiles(); break;
+                        case 'erase': void showExit(true); break;
+                        case 'confirm-erase': void showExit(false, clearDosProgress() ? 'Progress erased' : 'Could not erase progress'); break;
+                        case 'back': void showTitle(); break;
+                    }
+                });
+            } catch (reason) {
+                if (current === generation && !disposed) error.value = reason instanceof Error ? reason.message : 'Could not show the exit screen.';
             }
         }
 
@@ -458,6 +478,8 @@ export default defineComponent({
             try {
                 await importLemmingsFiles(input.files);
                 message.value = '';
+                // New files mean new artwork, levels and tunes: forget everything decoded so far.
+                resources = null; menuFont = null; titleSprites = null;
                 await boot();
             } catch (reason) {
                 message.value = reason instanceof Error ? reason.message : 'Could not read those files. Please try again.';
