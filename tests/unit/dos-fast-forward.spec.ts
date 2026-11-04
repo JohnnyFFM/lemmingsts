@@ -52,7 +52,7 @@ describe('fast forward from the DOS panel', () => {
         }
     });
 
-    it('does not toggle when the clock was held long enough to change the filter', () => {
+    it('keeps the clock and the filter apart by place, not by how long the press lasts', () => {
         vi.useFakeTimers();
         try {
             const { instance, display } = gui();
@@ -60,11 +60,18 @@ describe('fast forward from the DOS panel', () => {
             const filter = vi.fn(() => 'SMOOTH');
             instance.setFastForwardRequestHandler(fastForward);
             instance.setFilterRequestHandler(filter);
+            // A long press on the clock is still fast forward, never the filter.
             display.onMouseDown.trigger(new Position2D(TIME_READOUT_X + 20, 6));
-            vi.advanceTimersByTime(800);
+            vi.advanceTimersByTime(2000);
             display.onMouseUp.trigger(new Position2D(TIME_READOUT_X + 20, 6));
+            expect(fastForward).toHaveBeenCalledOnce();
+            expect(filter).not.toHaveBeenCalled();
+            // A hold on the readouts to the left is the filter, never fast forward.
+            display.onMouseDown.trigger(new Position2D(60, 6));
+            vi.advanceTimersByTime(800);
+            display.onMouseUp.trigger(new Position2D(60, 6));
             expect(filter).toHaveBeenCalledOnce();
-            expect(fastForward).not.toHaveBeenCalled();
+            expect(fastForward).toHaveBeenCalledOnce();
         } finally {
             vi.useRealTimers();
         }

@@ -18,7 +18,7 @@ export const DOS_MINIMAP = { x: 208, y: 18, width: 104, height: 20 } as const;
 const MINIMAP_TERRAIN_REFRESH_TICKS = 4;
 /** Holding the pause button this long opens the menu. */
 const MENU_HOLD_MS = 700;
-/** The DOS readout row draws "Time" from this panel x; a tap from here on toggles fast forward. */
+/** The DOS readout row draws "Time" from this panel x: the clock toggles fast forward, the readouts left of it hold for the filter. */
 export const TIME_READOUT_X = 240;
 const MINIMAP_TERRAIN_RGB = [0x30, 0xa0, 0x30] as const;
 const MINIMAP_LEMMING_RGB = [0xe0, 0xff, 0x80] as const;
@@ -302,9 +302,10 @@ export class GameGui {
             if (e.y > 15) {
                 this.handleSkillMouseDown(e.x);
             } else if (!this.isWindowsLayout) {
-                // A tap on the TIME readout toggles fast forward; holding the row cycles the display filter.
+                // The readout row is split: the clock on the right toggles fast forward on release,
+                // the readouts on the left cycle the display filter when held.
                 this.readoutPressX = e.x;
-                if (!this.filterRequestHandler) return;
+                if (e.x >= TIME_READOUT_X || !this.filterRequestHandler) return;
                 this.clearFilterHold();
                 this.filterHoldTimer = setTimeout(() => {
                     this.filterHoldTimer = null;
@@ -326,8 +327,8 @@ export class GameGui {
             this.clearMenuHold();
             const tappedReadout = this.readoutPressX;
             this.readoutPressX = null;
-            // Released before the hold fired: a plain tap. On the clock it toggles fast forward.
-            if (tappedReadout !== null && (this.filterHoldTimer !== null || !this.filterRequestHandler) && tappedReadout >= TIME_READOUT_X) {
+            // A press that began on the clock toggles fast forward when it ends, however long it lasted.
+            if (tappedReadout !== null && tappedReadout >= TIME_READOUT_X) {
                 const label = this.fastForwardRequestHandler?.();
                 if (label) this.flashNotice(label);
             }
