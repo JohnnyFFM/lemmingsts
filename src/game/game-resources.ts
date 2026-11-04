@@ -2,6 +2,7 @@ import { GameConfig } from './config/game-config';
 import { FileContainer } from './resources/file/file-container';
 import { FileProvider } from './resources/file/file-provider';
 import { MainImageSprites } from './resources/main-image-sprites';
+import { MenuFont } from './resources/menu-font';
 import { LemmingsSprite } from './resources/lemmings-sprite';
 import { ColorPalette } from './resources/lemmings/color-palette';
 import { Level } from './resources/level';
@@ -83,6 +84,19 @@ export class GameResources {
         const container = await this.getMainDat();
 
         return new MainImageSprites(container.getPart(3), container.getPart(4));
+    }
+
+    private menuFont: Promise<MenuFont> | null = null;
+
+    /** The purple DOS menu font, decoded once per resource set. */
+    public getMenuFont(): Promise<MenuFont> {
+        if (!this.menuFont) {
+            this.menuFont = this.getMainImageSprites().then(sprites => sprites.getMenuFont()).catch(error => {
+                this.menuFont = null;
+                throw error;
+            });
+        }
+        return this.menuFont;
     }
 
 

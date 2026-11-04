@@ -1,5 +1,6 @@
 import { Position2D } from '../utilities/position2d';
 import { EventHandler } from '../utilities/event-handler';
+import { Frame } from '../resources/frame';
 import { DisplayImage } from './display-image';
 import { StageImageProperties } from './stage-image-properties';
 import { UserInputManager } from './user-input-manager';
@@ -49,6 +50,8 @@ export class Stage {
     private dosViewport: { width: number; height: number } | null = null;
     private dosPanelScale: number | null = null;
     private holdTimer: ReturnType<typeof setTimeout> | null = null;
+    /** A full-screen picture (such as a DOS menu) shown instead of the level and panel. */
+    private overlay: { frame: Frame; canvas: HTMLCanvasElement; onTap: ((x: number, y: number) => void) | null } | null = null;
     public readonly onGraphicsError = new EventHandler<string>();
     /** True when the playfield is away from its starting scale. */
     public readonly onZoomChange = new EventHandler<boolean>();
@@ -128,10 +131,66 @@ export class Stage {
     }
 
 
+    /**
+     * Show a picture over the whole stage, scaled to fit and centred, until it
+     * is cleared. While it is up, the level and panel take no input; a tap on
+     * the picture reports its position in the picture's own pixels.
+     */
+    public setOverlay(frame: Frame | null, onTap: ((x: number, y: number) => void) | null = null): void {
+        this.cancelPress();
+        this.controller.cancelActive();
+        if (!frame) {
+            this.overlay = null;
+            this.redraw();
+            return;
+        }
+        const canvas = this.overlay?.canvas ?? document.createElement('canvas');
+        if (canvas.width !== frame.width || canvas.height !== frame.height) {
+            canvas.width = frame.width;
+            canvas.height = frame.height;
+        }
+        const ctx = canvas.getContext('2d');
+        if (ctx && typeof ImageData !== 'undefined') ctx.putImageData(new ImageData(frame.getData(), frame.width, frame.height), 0, 0);
+        this.overlay = { frame, canvas, onTap };
+        this.redraw();
+    }
+
+    public hasOverlay(): boolean {
+        return this.overlay !== null;
+    }
+
+    /** Where the overlay lands on the stage: letterboxed, keeping its pixels square. */
+    private overlayBounds(): { x: number; y: number; width: number; height: number; scale: number } | null {
+        if (!this.overlay) return null;
+        const { frame } = this.overlay;
+        const scale = Math.min(this.stageCav.width / frame.width, this.stageCav.height / frame.height);
+        const width = Math.floor(frame.width * scale), height = Math.floor(frame.height * scale);
+        return { x: Math.floor((this.stageCav.width - width) / 2), y: Math.floor((this.stageCav.height - height) / 2), width, height, scale };
+    }
+
+    private drawOverlay(): void {
+        const bounds = this.overlayBounds();
+        const ctx = this.stageCav.getContext('2d');
+        if (!bounds || !ctx || !this.overlay) return;
+        ctx.fillStyle = '#000000';
+        ctx.fillRect(0, 0, this.stageCav.width, this.stageCav.height);
+        ctx.imageSmoothingEnabled = false;
+        ctx.globalAlpha = 1;
+        ctx.drawImage(this.overlay.canvas, 0, 0, this.overlay.frame.width, this.overlay.frame.height, bounds.x, bounds.y, bounds.width, bounds.height);
+    }
+
+    private tapOverlay(e: Position2D): void {
+        const bounds = this.overlayBounds();
+        if (!bounds || !this.overlay?.onTap) return;
+        const x = Math.floor((e.x - bounds.x) / bounds.scale), y = Math.floor((e.y - bounds.y) / bounds.scale);
+        if (x < 0 || y < 0 || x >= this.overlay.frame.width || y >= this.overlay.frame.height) return;
+        this.overlay.onTap(x, y);
+    }
+
     private handleOnDoubleClick(): void {
 
         this.controller.onDoubleClick.on((e) => {
-            if (!e) {
+            if (!e || this.overlay) {
                 return;
             }
 
@@ -149,7 +208,7 @@ export class Stage {
     private handleOnMouseDown(): void {
 
         this.controller.onMouseDown.on((e) => {
-            if (!e) {
+            if (!e || this.overlay) {
                 return;
             }
 
@@ -199,6 +258,10 @@ export class Stage {
             if (!e) {
                 return;
             }
+            if (this.overlay) {
+                this.tapOverlay(e);
+                return;
+            }
 
             if (this.scrollbarDragging) {
                 this.scrollbarDragging = false;
@@ -229,7 +292,7 @@ export class Stage {
 
     private handleOnMouseMove(): void {
         this.controller.onMouseMove.on((e) => {
-            if (!e) {
+            if (!e || this.overlay) {
                 return;
             }
 
@@ -276,7 +339,7 @@ export class Stage {
 
     private handelOnZoom(): void {
         this.controller.onZoom.on((e) => {
-            if (!e) {
+            if (!e || this.overlay) {
                 return;
             }
 
@@ -296,7 +359,7 @@ export class Stage {
     /** Pinch only the playfield and keep the level beneath the fingers fixed. */
     private handlePinch(): void {
         this.controller.onPinchStart.on(event => {
-            if (!event || this.pressedImage !== this.gameImgProps || !this.gameImgProps.display) return;
+            if (!event || this.overlay || this.pressedImage !== this.gameImgProps || !this.gameImgProps.display) return;
             if (this.getStageImageAt(event.first.x, event.first.y) !== this.gameImgProps ||
                 this.getStageImageAt(event.second.x, event.second.y) !== this.gameImgProps ||
                 !this.isInContent(this.gameImgProps, event.first) || !this.isInContent(this.gameImgProps, event.second)) return;
@@ -694,6 +757,7 @@ export class Stage {
 
     public dispose(): void {
         this.cancelPress();
+        this.overlay = null;
         this.dosViewport = null;
         this.dosPanelScale = null;
         this.keyboardTarget = null;
@@ -824,6 +888,10 @@ export class Stage {
 
     /** redraw everything */
     public redraw() {
+        if (this.overlay) {
+            this.drawOverlay();
+            return;
+        }
         if (this.gameImgProps.display) {
             const gameImg = this.gameImgProps.display.getImageData();
 

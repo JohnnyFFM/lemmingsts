@@ -9,15 +9,15 @@ import { CommandSelectSkill } from '@/game/game-play/commands/command-select-ski
 import { SkillTypes } from '@/game/game-play/skill-types';
 import { readLastLevel, readProgress, readSettings, recordCompletion, rememberLevel, suggestNextLevel, type LevelLocation } from '@/game/progress';
 import { hasLemmingsFiles, importLemmingsFiles } from '@/game/resources/file/game-file-store';
+import { MenuFont } from '@/game/resources/menu-font';
 import { AudioPlayer } from '@/game/resources/sound/audio-player';
 import { SoundEffectsPlayer } from '@/game/resources/sound/sound-effects-player';
+import { buildLevelIntro, buildLevelResult } from '@/game/view/dos-screens';
 import { Stage } from '@/game/view/stage';
 
 const SETTINGS_KEY = 'lemmings.settings.v1';
 /** A second press on the panel's nuke button within this time confirms it. */
 const NUKE_CONFIRM_MS = 3000;
-/** Until the DOS result screen exists, the next level follows after this pause. */
-const END_OF_LEVEL_MS = 2500;
 
 const SKILL_ORDER = [SkillTypes.CLIMBER, SkillTypes.FLOATER, SkillTypes.BOMBER, SkillTypes.BLOCKER,
     SkillTypes.BUILDER, SkillTypes.BASHER, SkillTypes.MINER, SkillTypes.DIGGER];
@@ -54,26 +54,22 @@ export default defineComponent({
         const audio = readAudioPreference();
         let stage: Stage | null = null;
         let resources: GameResources | null = null;
+        let menuFont: MenuFont | null = null;
         let game: Game | null = null;
         let effects: SoundEffectsPlayer | null = null;
         let music: AudioPlayer | null = null;
         let location: LevelLocation = { gameType: GameTypes.LEMMINGS, groupIndex: 0, levelIndex: 0 };
         let groupLengths: number[] = [];
+        let groupNames: string[] = [];
         let generation = 0;
         let disposed = false;
         let paused = false;
         let nukeArmedUntil = 0;
-        let endTimer: ReturnType<typeof setTimeout> | null = null;
         let observer: ResizeObserver | null = null;
 
         function fitStage() {
             const bounds = container.value?.getBoundingClientRect();
             if (stage && bounds?.width && bounds.height) stage.setDosViewport(bounds.width, bounds.height);
-        }
-
-        function clearEndTimer() {
-            if (endTimer !== null) clearTimeout(endTimer);
-            endTimer = null;
         }
 
         function stopMusic() {
@@ -82,7 +78,6 @@ export default defineComponent({
         }
 
         function disposeGame() {
-            clearEndTimer();
             effects?.stop();
             effects = null;
             stopMusic();
@@ -129,6 +124,16 @@ export default defineComponent({
             else music?.play();
         }
 
+        /** Begin the loaded level once the player leaves its preview card. */
+        function startLoadedGame() {
+            if (!game || !stage) return;
+            stage.setOverlay(null);
+            game.start();
+            paused = false;
+            onVisibilityChange();
+            void playMusic();
+        }
+
         async function playLevel(next: LevelLocation) {
             const current = ++generation;
             disposeGame();
@@ -137,10 +142,11 @@ export default defineComponent({
                 if (!stage) throw new Error('The game screen is not ready.');
                 const nextResources = resources ?? await factory.getGameResources(GameTypes.LEMMINGS);
                 if (!nextResources) throw new Error('Could not load the game files.');
-                const level = await nextResources.getLevel(next.groupIndex, next.levelIndex);
+                const [level, font] = await Promise.all([nextResources.getLevel(next.groupIndex, next.levelIndex), menuFont ?? nextResources.getMenuFont()]);
                 if (!level) throw new Error('Could not load this level.');
                 if (disposed || current !== generation) return;
                 resources = nextResources;
+                menuFont = font;
                 location = next;
                 rememberLevel(next.gameType, next.groupIndex, next.levelIndex, 'dos');
 
@@ -150,7 +156,6 @@ export default defineComponent({
                 level.render(display);
                 display.setScreenPosition(level.screenPositionX, 0);
                 stage.applyDosLayout();
-                display.redraw();
 
                 const nextGame = await factory.getGame(GameTypes.LEMMINGS, next.groupIndex, next.levelIndex);
                 if (!nextGame) throw new Error('Could not start this level.');
@@ -179,25 +184,32 @@ export default defineComponent({
                 game.setViewportProvider(() => activeStage.getGameViewport());
                 game.setMinimapNavigationHandler((x, y) => activeStage.revealGamePosition(x, y));
 
+                const neededPercent = level.releaseCount > 0 ? Math.floor(level.needCount / level.releaseCount * 100) : 0;
                 game.onGameEnd.on(result => {
-                    if (!result || !game) return;
+                    if (!result || !game || disposed || current !== generation) return;
                     game.getGameTimer().suspend();
                     effects?.stop();
                     stopMusic();
                     const succeeded = result.state === GameStateTypes.SUCCEEDED;
                     if (succeeded) recordCompletion(location.gameType, location.groupIndex, location.levelIndex, result.survivorPercentage, 'dos');
-                    clearEndTimer();
-                    endTimer = setTimeout(() => {
-                        endTimer = null;
-                        if (disposed) return;
+                    const screen = buildLevelResult(font, {
+                        rescuedPercent: result.survivorPercentage, neededPercent,
+                        outOfTime: result.state === GameStateTypes.FAILED_OUT_OF_TIME, succeeded,
+                    });
+                    activeStage.setOverlay(screen, () => {
+                        if (disposed || current !== generation) return;
                         void playLevel(succeeded ? nextLevelLocation(location, groupLengths) : location);
-                    }, END_OF_LEVEL_MS);
+                    });
                 });
 
-                game.start();
-                paused = false;
-                onVisibilityChange();
-                void playMusic();
+                const intro = buildLevelIntro(font, {
+                    number: next.levelIndex + 1, name: level.name, lemmings: level.releaseCount, needed: level.needCount,
+                    releaseRate: level.releaseRate, minutes: level.timeLimit, rating: groupNames[next.groupIndex] ?? '',
+                });
+                stage.setOverlay(intro, () => {
+                    if (disposed || current !== generation) return;
+                    startLoadedGame();
+                });
             } catch (reason) {
                 if (current === generation && !disposed) error.value = reason instanceof Error ? reason.message : 'Could not load this level.';
             }
@@ -211,6 +223,7 @@ export default defineComponent({
                 const config = await factory.getConfig(GameTypes.LEMMINGS);
                 if (!config) throw new Error('The game configuration is not available.');
                 groupLengths = config.level.order.map(group => group.length);
+                groupNames = config.level.groups;
                 const start = suggestNextLevel(readLastLevel('dos'), readProgress('dos'), groupLengths)
                     ?? { gameType: GameTypes.LEMMINGS, groupIndex: 0, levelIndex: 0 };
                 await playLevel(start);

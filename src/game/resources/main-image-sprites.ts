@@ -1,6 +1,8 @@
 import { ColorPalette } from './lemmings/color-palette';
 import { PaletteImage } from './lemmings/palette-image';
 import { BinaryReader } from './file/binary-reader';
+import { Frame } from './frame';
+import { MenuFont } from './menu-font';
 
 export class MainImageSprites {
     private fr3: BinaryReader;
@@ -105,5 +107,31 @@ export class MainImageSprites {
         paletteImg.readImageData(this.fr4, 4, 0x5A00);
         paletteImg.setTransparencyByColorIndex(0);
         return paletteImg.createFrame(this.colorPalette);
+    }
+
+    /** The 72×27 rating sign for a difficulty: 0 Fun, 1 Tricky, 2 Taxing, 3 Mayhem. */
+    public getRatingSign(rating: number) {
+        const offsets = [0x65E4, 0x6218, 0x5E4C, 0x5A80];
+        const paletteImg = new PaletteImage(72, 27);
+        paletteImg.readImageData(this.fr4, 4, offsets[Math.max(0, Math.min(offsets.length - 1, rating))]);
+        paletteImg.setTransparencyByColorIndex(0);
+        return paletteImg.createFrame(this.colorPalette);
+    }
+
+    /** One of the seven blinking-eyes animations on the title screen, 8 frames of 32×12. */
+    public getBlink(index: number) {
+        const frames: Frame[] = [];
+        for (let frame = 0; frame < 8; frame++) {
+            const paletteImg = new PaletteImage(32, 12);
+            paletteImg.readImageData(this.fr4, 4, index * 0x600 + frame * 0xC0);
+            paletteImg.setTransparencyByColorIndex(0);
+            frames.push(paletteImg.createFrame(this.colorPalette));
+        }
+        return frames;
+    }
+
+    /** The purple 16×16 text font used by the DOS menu, preview and result screens. */
+    public getMenuFont() {
+        return new MenuFont(this.fr4, this.colorPalette);
     }
 }
