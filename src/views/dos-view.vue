@@ -1,5 +1,5 @@
 <template>
-  <div ref="container" class="dos-app" @pointerdown.capture="requestImmersive">
+  <div ref="container" class="dos-app" @pointerdown.capture="requestImmersive" @contextmenu.prevent>
     <canvas ref="gameCanvas" width="1067" height="600" tabindex="0" aria-label="Lemmings">
       Your browser does not support the game canvas.
     </canvas>
