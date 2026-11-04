@@ -55,4 +55,23 @@ describe('stage overlay', () => {
         stage.dispose();
         vi.restoreAllMocks();
     });
+
+    it('keeps a tap on the picture alive across a relayout, while a level press is cancelled', () => {
+        const { canvas, stage, click } = setup();
+        stage.setDosViewport(1600, 900);
+        const tap = vi.fn();
+        stage.setOverlay(new Frame(640, 400), tap);
+        // Entering fullscreen on the first tap resizes the stage between press and release.
+        pointer(canvas, 'pointerdown', 400, 240);
+        stage.setDosViewport(1600, 1000);
+        pointer(canvas, 'pointerup', 400, 240);
+        expect(tap).toHaveBeenCalledOnce();
+        stage.setOverlay(null);
+        pointer(canvas, 'pointerdown', 400, 100);
+        stage.setDosViewport(1600, 900);
+        pointer(canvas, 'pointerup', 400, 100);
+        expect(click).not.toHaveBeenCalled();
+        stage.dispose();
+        vi.restoreAllMocks();
+    });
 });

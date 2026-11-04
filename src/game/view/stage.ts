@@ -535,7 +535,10 @@ export class Stage {
         const stageWidth = Math.max(DOS_PANEL_WIDTH, Math.round(DOS_STAGE_HEIGHT * this.dosViewport.width / this.dosViewport.height));
         this.dosPanelScale = stageWidth / DOS_PANEL_WIDTH;
         if (this.stageCav.width !== stageWidth || this.stageCav.height !== DOS_STAGE_HEIGHT) {
-            this.controller.cancelActive();
+            // A level press must not survive a relayout, but a tap on a menu
+            // screen may: entering fullscreen on that very tap resizes the
+            // stage, and the tap's release is mapped with the new bounds anyway.
+            if (!this.overlay) this.controller.cancelActive();
             // Setting a canvas dimension clears it, so skip unchanged dimensions.
             if (this.stageCav.width !== stageWidth) this.stageCav.width = stageWidth;
             if (this.stageCav.height !== DOS_STAGE_HEIGHT) this.stageCav.height = DOS_STAGE_HEIGHT;
