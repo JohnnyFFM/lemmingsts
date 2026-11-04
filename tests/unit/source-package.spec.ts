@@ -17,7 +17,7 @@ it('packages application source and notices without private game files', () => {
     'public/data/README.md', 'public/data/lemmings/README.md', 'public/data/lemmings_ohNo/README.md',
     'public/data/lemmings_Holiday93/README.md', 'public/data/lemmings_Holiday94/README.md',
     'public/data/lemmings_X-Mas91/README.md', 'public/data/lemmings_X-Mas92/README.md',
-    'public/icons/icon-192.png', 'public/icons/icon-512.png', 'public/third-party.html',
+    'public/icons/icon-192.png', 'public/icons/icon-512.png', 'public/icons/maskable-512.png', 'scripts/make-icons.mjs', 'public/third-party.html',
     'public/licenses/GPL-2.0.txt', 'public/licenses/LGPL-2.1.txt', 'src/main.ts', 'src/private.dat',
     'tests/unit/example.spec.ts', 'tests/integration/private.tmp.spec.ts',
     'public/data/private.dat', 'dos/lemmings/LEVEL000.DAT', 'dist/data/local-game/main.dat',

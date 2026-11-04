@@ -87,7 +87,7 @@ describe('offline shell updates', () => {
         const configUrl = `${origin}data/config.json`;
         app.entries.set(configUrl, new Response('working config'));
         app.network.set(origin, new Response(newHtml));
-        for (const path of ['data/config.json', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png']) {
+        for (const path of ['data/config.json', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/maskable-512.png']) {
             app.network.set(`${origin}${path}`, new Response('ok'));
         }
         app.network.set(`${origin}assets/new.js`, new Response('ok', { headers: { 'Content-Type': 'text/javascript' } }));
@@ -96,10 +96,10 @@ describe('offline shell updates', () => {
         expect(await app.entries.get(configUrl)!.clone().text()).toBe('working config');
     });
 
-    it.each(['data/config.json', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png'])('rejects installer HTML fallback for %s without changing the working offline files', async missingPath => {
+    it.each(['data/config.json', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/maskable-512.png'])('rejects installer HTML fallback for %s without changing the working offline files', async missingPath => {
         const app = worker();
         app.network.set(origin, new Response(newHtml));
-        const paths = ['data/config.json', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png'];
+        const paths = ['data/config.json', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/maskable-512.png'];
         for (const path of paths) {
             app.entries.set(`${origin}${path}`, new Response(`working ${path}`));
             app.network.set(`${origin}${path}`, new Response('new resource'));
@@ -118,7 +118,7 @@ describe('offline shell updates', () => {
         app.network.set(origin, new Response(newHtml));
         app.network.set(`${origin}assets/new.js`, new Response('new', { headers: { 'Content-Type': 'text/javascript' } }));
         app.network.set(`${origin}assets/new.css`, new Response('style', { headers: { 'Content-Type': 'text/css' } }));
-        const paths = ['data/config.json', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png'];
+        const paths = ['data/config.json', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/maskable-512.png'];
         for (const path of paths) app.network.set(`${origin}${path}`, new Response(`new ${path}`));
         await app.install();
         app.goOffline();

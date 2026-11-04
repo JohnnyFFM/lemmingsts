@@ -51,7 +51,7 @@ self.addEventListener('install', event => {
     // Stage supporting files together with the document's assets. In
     // particular, a SPA fallback for a missing config must not overwrite the
     // working offline config even if installation later fails on a script.
-    await cacheShell(cache, response, ['data/config.json', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png']
+    await cacheShell(cache, response, ['data/config.json', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/maskable-512.png']
       .map(path => new URL(path, base).href));
   })());
 });
