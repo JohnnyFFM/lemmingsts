@@ -424,7 +424,11 @@ export class Stage {
             const width = whole ? pixels.width : Math.min(pixels.width - image.viewPoint.x, image.width / scale);
             const height = whole ? pixels.height : Math.min(pixels.height - image.viewPoint.y, image.height / scale);
             if (width <= 0 || height <= 0) continue;
-            layers.push({ pixels: { data: pixels.data as Uint8ClampedArray, width: pixels.width, height: pixels.height },
+            // The level also offers its terrain alone, so a filter can smooth the ground
+            // once and keep the moving lemmings from re-deciding its edges every frame.
+            const terrain = whole ? undefined : image.display?.getBackgroundPixels();
+            const base = terrain && terrain.length === pixels.width * pixels.height * 4 ? { data: terrain, width: pixels.width, height: pixels.height } : undefined;
+            layers.push({ pixels: { data: pixels.data as Uint8ClampedArray, width: pixels.width, height: pixels.height }, base,
                 source: { x: image.viewPoint.x, y: image.viewPoint.y, width, height },
                 dest: { x: image.x + offset.x, y: image.y + offset.y, width: width * scale, height: height * scale } });
         }

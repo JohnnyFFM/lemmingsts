@@ -15,7 +15,13 @@ export const FILTER_LABELS: Readonly<Record<FilterName, string>> = { sharp: 'SHA
 
 export interface PresentPixels { data: Uint8ClampedArray; width: number; height: number }
 export interface PresentRect { x: number; y: number; width: number; height: number }
-export interface PresentLayer { pixels: PresentPixels; source: PresentRect; dest: PresentRect }
+export interface PresentLayer {
+    pixels: PresentPixels;
+    /** The layer without its moving sprites (the terrain alone), when it has one. */
+    base?: PresentPixels;
+    source: PresentRect;
+    dest: PresentRect;
+}
 /** Everything the stage drew, in the stage canvas's own pixel coordinates. */
 export interface PresentFrame { width: number; height: number; layers: PresentLayer[] }
 
@@ -48,13 +54,30 @@ precision mediump float;
 #endif
 `;
 
+/*
+ * Edge filters work on the terrain alone (uBase) and take the sprites from the
+ * composed picture (uOverlay) wherever it differs, so a passing lemming never
+ * changes how the ground around it is smoothed.
+ */
+const OVERLAY = `
+uniform sampler2D uBase;
+uniform sampler2D uOverlay;
+uniform float uUseOverlay;
+vec3 withSprites(vec3 filtered) {
+    if (uUseOverlay < 0.5) return filtered;
+    vec3 base = texture2D(uBase, vTexCoord).rgb;
+    vec3 over = texture2D(uOverlay, vTexCoord).rgb;
+    return any(notEqual(base, over)) ? over : filtered;
+}
+`;
+
 const HEADER = PRECISION + `
 uniform sampler2D uTexture;
 uniform vec2 uTextureSize;
 uniform vec2 uOutputSize;
 varying vec2 vTexCoord;
 varying vec4 t1; varying vec4 t2; varying vec4 t3; varying vec4 t4; varying vec4 t5; varying vec4 t6; varying vec4 t7;
-`;
+` + OVERLAY;
 
 const SHARP = HEADER + `
 void main() { gl_FragColor = vec4(texture2D(uTexture, vTexCoord).rgb, 1.0); }`;
@@ -136,7 +159,7 @@ void main() {
     res2 = mix(res2, mix(F, B, px.y), maximos.y);
     res2 = mix(res2, mix(D, H, px.w), maximos.w);
     vec3 res = mix(res1, res2, step(c_df(E, res1), c_df(E, res2)));
-    gl_FragColor = vec4(res, 1.0);
+    gl_FragColor = vec4(withSprites(res), 1.0);
 }`;
 
 /** A soft tube look: slight horizontal bleed, a scanline per source row and a faint aperture mask. */
@@ -212,7 +235,7 @@ uniform sampler2D uPrev;
 uniform vec2 uTextureSize;
 varying vec2 vTexCoord;
 varying vec4 t1; varying vec4 t2; varying vec4 t3; varying vec4 t4;
-`;
+` + OVERLAY;
 
 const SCALEFX_PASS0 = SCALEFX_HEADER + `
 float dist(vec3 A, vec3 B) {
@@ -359,7 +382,7 @@ void main() {
     vec2 fp = floor(3.0 * fract(vTexCoord * uTextureSize));
     float sp = fp.y == 0.0 ? (fp.x == 0.0 ? crn.x : fp.x == 1.0 ? mid.x : crn.y) : (fp.y == 1.0 ? (fp.x == 0.0 ? mid.w : fp.x == 1.0 ? 0.0 : mid.y) : (fp.x == 0.0 ? crn.w : fp.x == 1.0 ? mid.z : crn.z));
     vec2 res = sp == 0.0 ? vec2(0.0, 0.0) : sp == 1.0 ? vec2(-1.0, 0.0) : sp == 2.0 ? vec2(-2.0, 0.0) : sp == 3.0 ? vec2(1.0, 0.0) : sp == 4.0 ? vec2(2.0, 0.0) : sp == 5.0 ? vec2(0.0, -1.0) : sp == 6.0 ? vec2(0.0, -2.0) : sp == 7.0 ? vec2(0.0, 1.0) : vec2(0.0, 2.0);
-    gl_FragColor = vec4(texture2D(uPrev, vTexCoord + res / uTextureSize).rgb, 1.0);
+    gl_FragColor = vec4(withSprites(texture2D(uPrev, vTexCoord + res / uTextureSize).rgb), 1.0);
 }`;
 
 const SINGLE_PASS: Partial<Record<FilterName, string>> = { sharp: SHARP, smooth: SMOOTH, crt: CRT, scanlines: SCANLINES };
@@ -374,8 +397,12 @@ const SCALEFX_PASSES: Array<{ vertex: string; fragment: string }> = [
 interface Program {
     program: WebGLProgram; aPosition: number; aTexCoord: number;
     uTexture: WebGLUniformLocation | null; uPrev: WebGLUniformLocation | null;
+    uBase: WebGLUniformLocation | null; uOverlay: WebGLUniformLocation | null; uUseOverlay: WebGLUniformLocation | null;
     uTextureSize: WebGLUniformLocation | null; uOutputSize: WebGLUniformLocation | null;
 }
+
+/** Filters that decide pixels from their neighbours, and so should not see the sprites. */
+const EDGE_FILTERS: ReadonlySet<FilterName> = new Set<FilterName>(['smooth', 'scalefx']);
 
 interface Target { texture: WebGLTexture; framebuffer: WebGLFramebuffer; width: number; height: number }
 
@@ -424,10 +451,18 @@ export class GlPresenter {
         let ok = true;
         frame.layers.forEach((layer, index) => {
             if (!ok) return;
-            const source = this.texture(index);
+            const composed = this.texture(index * 2);
             gl.activeTexture(gl.TEXTURE0);
-            gl.bindTexture(gl.TEXTURE_2D, source);
+            gl.bindTexture(gl.TEXTURE_2D, composed);
             gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, layer.pixels.width, layer.pixels.height, 0, gl.RGBA, gl.UNSIGNED_BYTE, layer.pixels.data);
+            // Edge filters smooth the terrain alone and take the sprites from the composed picture.
+            const separate = EDGE_FILTERS.has(filter) && !!layer.base;
+            let source = composed;
+            if (separate && layer.base) {
+                source = this.texture(index * 2 + 1);
+                gl.bindTexture(gl.TEXTURE_2D, source);
+                gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, layer.base.width, layer.base.height, 0, gl.RGBA, gl.UNSIGNED_BYTE, layer.base.data);
+            }
             let sampled: WebGLTexture = source, previous: WebGLTexture | null = null;
             if (filter === 'scalefx') {
                 const tags = this.runScaleFx(index, source, layer.pixels.width, layer.pixels.height);
@@ -442,7 +477,7 @@ export class GlPresenter {
                 gl.clearColor(0, 0, 0, 1);
                 gl.clear(gl.COLOR_BUFFER_BIT);
             }
-            this.drawLayer(output, layer, frame, sampled, previous);
+            this.drawLayer(output, layer, frame, sampled, previous, separate ? { base: source, overlay: composed } : null);
         });
         gl.disable(gl.SCISSOR_TEST);
         return ok;
@@ -463,7 +498,8 @@ export class GlPresenter {
     }
 
     /** Draw one layer's quad onto the screen with `sampled` as the main texture and `previous` as the second. */
-    private drawLayer(program: Program, layer: PresentLayer, frame: PresentFrame, sampled: WebGLTexture, previous: WebGLTexture | null): void {
+    private drawLayer(program: Program, layer: PresentLayer, frame: PresentFrame, sampled: WebGLTexture, previous: WebGLTexture | null,
+        sprites: { base: WebGLTexture; overlay: WebGLTexture } | null): void {
         const gl = this.gl!;
         const scaleX = this.canvas.width / frame.width, scaleY = this.canvas.height / frame.height;
         // The analysis passes may have left an off-screen target and its small viewport bound.
@@ -478,8 +514,17 @@ export class GlPresenter {
             gl.activeTexture(gl.TEXTURE1);
             gl.bindTexture(gl.TEXTURE_2D, previous);
             gl.uniform1i(program.uPrev, 1);
-            gl.activeTexture(gl.TEXTURE0);
         }
+        if (sprites) {
+            gl.activeTexture(gl.TEXTURE2);
+            gl.bindTexture(gl.TEXTURE_2D, sprites.base);
+            gl.uniform1i(program.uBase, 2);
+            gl.activeTexture(gl.TEXTURE3);
+            gl.bindTexture(gl.TEXTURE_2D, sprites.overlay);
+            gl.uniform1i(program.uOverlay, 3);
+        }
+        if (program.uUseOverlay) gl.uniform1f(program.uUseOverlay, sprites ? 1 : 0);
+        gl.activeTexture(gl.TEXTURE0);
         gl.uniform2f(program.uTextureSize, layer.pixels.width, layer.pixels.height);
         if (program.uOutputSize) gl.uniform2f(program.uOutputSize, layer.dest.width * scaleX, layer.dest.height * scaleY);
         const x0 = layer.dest.x * scaleX, y0 = layer.dest.y * scaleY;
@@ -648,6 +693,7 @@ export class GlPresenter {
                 result = {
                     program, aPosition: gl.getAttribLocation(program, 'aPosition'), aTexCoord: gl.getAttribLocation(program, 'aTexCoord'),
                     uTexture: gl.getUniformLocation(program, 'uTexture'), uPrev: gl.getUniformLocation(program, 'uPrev'),
+                    uBase: gl.getUniformLocation(program, 'uBase'), uOverlay: gl.getUniformLocation(program, 'uOverlay'), uUseOverlay: gl.getUniformLocation(program, 'uUseOverlay'),
                     uTextureSize: gl.getUniformLocation(program, 'uTextureSize'), uOutputSize: gl.getUniformLocation(program, 'uOutputSize'),
                 };
             } else {

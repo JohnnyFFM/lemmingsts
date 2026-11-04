@@ -109,6 +109,8 @@ export class DisplayImage {
     }
 
 
+    private background?: Uint8ClampedArray;
+
     /** render the level-background to an image */
     public setBackground(groundImage: Uint8ClampedArray, groundMask?: SolidLayer) {
         if (!this.imgData) {
@@ -117,8 +119,14 @@ export class DisplayImage {
 
         /// set pixels
         this.imgData.data.set(groundImage);
+        this.background = groundImage;
         this.groundMask = groundMask;
         this.nativeForeground?.data.fill(0);
+    }
+
+    /** The terrain alone, as last supplied: the level keeps this array current as it is dug. */
+    public getBackgroundPixels(): Uint8ClampedArray | undefined {
+        return this.background;
     }
 
 

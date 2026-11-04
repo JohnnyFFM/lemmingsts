@@ -26,6 +26,7 @@ function stageWithLevel() {
     const level = stage.getGameDisplay(), panel = stage.getGuiDisplay();
     const image = (width: number, height: number) => ({ width, height, data: new Uint8ClampedArray(width * height * 4) }) as unknown as ImageData;
     vi.spyOn(level, 'getImageData').mockReturnValue(image(1600, 160));
+    vi.spyOn(level, 'getBackgroundPixels').mockReturnValue(new Uint8ClampedArray(1600 * 160 * 4));
     vi.spyOn(level, 'getWidth').mockReturnValue(1600); vi.spyOn(level, 'getHeight').mockReturnValue(160);
     vi.spyOn(panel, 'getImageData').mockReturnValue(image(320, 40));
     vi.spyOn(panel, 'getWidth').mockReturnValue(320); vi.spyOn(panel, 'getHeight').mockReturnValue(40);
@@ -45,6 +46,8 @@ describe('present frames for the filter presenter', () => {
         expect(frame.layers).toHaveLength(2);
         const [level, panel] = frame.layers;
         expect(level.pixels.width).toBe(1600);
+        expect(level.base?.width).toBe(1600); // the terrain alone, for edge filters
+        expect(panel.base).toBeUndefined();
         expect(level.source.x).toBe(640);
         expect(level.source.height).toBe(160);
         expect(level.dest).toMatchObject({ x: 0, y: 0 });
