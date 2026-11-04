@@ -1,4 +1,5 @@
 import { defineComponent, onBeforeUnmount, onMounted, ref } from 'vue';
+import { useRouter } from 'vue-router';
 import { Game } from '@/game/game';
 import { GameFactory } from '@/game/game-factory';
 import { GameResources } from '@/game/game-resources';
@@ -7,12 +8,13 @@ import { GameTypes } from '@/game/game-types';
 import { CommandNuke } from '@/game/game-play/commands/command-nuke';
 import { CommandSelectSkill } from '@/game/game-play/commands/command-select-skill';
 import { SkillTypes } from '@/game/game-play/skill-types';
-import { readLastLevel, readProgress, readSettings, recordCompletion, rememberLevel, suggestNextLevel, type LevelLocation } from '@/game/progress';
+import { readLastLevel, readProgress, readSettings, recordCompletion, rememberLevel, saveSettings, suggestNextLevel, type LevelLocation } from '@/game/progress';
 import { hasLemmingsFiles, importLemmingsFiles } from '@/game/resources/file/game-file-store';
+import { MainImageSprites } from '@/game/resources/main-image-sprites';
 import { MenuFont } from '@/game/resources/menu-font';
 import { AudioPlayer } from '@/game/resources/sound/audio-player';
 import { SoundEffectsPlayer } from '@/game/resources/sound/sound-effects-player';
-import { buildLevelIntro, buildLevelResult } from '@/game/view/dos-screens';
+import { buildLevelIntro, buildLevelList, buildLevelResult, buildTitleScreen, hitAt, type AudioMode } from '@/game/view/dos-screens';
 import { Stage } from '@/game/view/stage';
 
 const SETTINGS_KEY = 'lemmings.settings.v1';
@@ -23,12 +25,17 @@ const SKILL_ORDER = [SkillTypes.CLIMBER, SkillTypes.FLOATER, SkillTypes.BOMBER, 
     SkillTypes.BUILDER, SkillTypes.BASHER, SkillTypes.MINER, SkillTypes.DIGGER];
 
 /** Music and effects default to on; a stored preference from the full app still wins. */
-function readAudioPreference(): { music: boolean; sound: boolean } {
+export function readAudioMode(): AudioMode {
     let stored = false;
     try { stored = localStorage.getItem(SETTINGS_KEY) !== null; } catch { stored = false; }
-    if (!stored) return { music: true, sound: true };
+    if (!stored) return 'music';
     const settings = readSettings();
-    return { music: settings.musicEnabled, sound: settings.soundEnabled };
+    return settings.musicEnabled ? 'music' : settings.soundEnabled ? 'fx' : 'off';
+}
+
+/** The DOS F4 sign cycles music with effects, effects only, then silence. */
+export function nextAudioMode(mode: AudioMode): AudioMode {
+    return mode === 'music' ? 'fx' : mode === 'fx' ? 'off' : 'music';
 }
 
 /** The level after `location`, or the same level at the end of the catalogue. */
@@ -40,8 +47,17 @@ export function nextLevelLocation(location: LevelLocation, groupLengths: readonl
     return location;
 }
 
+/** The first unsolved level of a rating, or its first level once everything is solved. */
+export function firstUnsolvedLevel(gameType: number, groupIndex: number, groupLength: number, solved: ReadonlySet<number>): LevelLocation {
+    for (let index = 0; index < groupLength; index++) {
+        if (!solved.has(index)) return { gameType, groupIndex, levelIndex: index };
+    }
+    return { gameType, groupIndex, levelIndex: 0 };
+}
+
 export default defineComponent({
     setup() {
+        const router = useRouter();
         const container = ref<HTMLElement | null>(null);
         const gameCanvas = ref<HTMLCanvasElement | null>(null);
         const fileInput = ref<HTMLInputElement | null>(null);
@@ -51,16 +67,17 @@ export default defineComponent({
         const error = ref('');
 
         const factory = new GameFactory(`${import.meta.env.BASE_URL}data`, 'dos');
-        const audio = readAudioPreference();
+        let audioMode = readAudioMode();
         let stage: Stage | null = null;
         let resources: GameResources | null = null;
         let menuFont: MenuFont | null = null;
+        let titleSprites: MainImageSprites | null = null;
         let game: Game | null = null;
         let effects: SoundEffectsPlayer | null = null;
         let music: AudioPlayer | null = null;
         let location: LevelLocation = { gameType: GameTypes.LEMMINGS, groupIndex: 0, levelIndex: 0 };
+        let rating = 0;
         let groupLengths: number[] = [];
-        let groupNames: string[] = [];
         let generation = 0;
         let disposed = false;
         let paused = false;
@@ -89,11 +106,11 @@ export default defineComponent({
         }
 
         async function playMusic() {
-            if (!resources || !audio.music || !game) return;
+            if (!resources || audioMode !== 'music' || !game) return;
             const generationAtStart = generation;
             try {
                 const player = await resources.getMusicPlayer(location.levelIndex % 20);
-                if (disposed || generationAtStart !== generation || !game) { player.stop(); return; }
+                if (disposed || generationAtStart !== generation || !game || audioMode !== 'music') { player.stop(); return; }
                 stopMusic();
                 music = player;
                 if (paused || document.hidden) music.suspend();
@@ -124,6 +141,74 @@ export default defineComponent({
             else music?.play();
         }
 
+        function solvedLevels(groupIndex: number): Set<number> {
+            return new Set(readProgress('dos').filter(entry => entry.gameType === GameTypes.LEMMINGS && entry.groupIndex === groupIndex).map(entry => entry.levelIndex));
+        }
+
+        async function loadMenuResources(): Promise<{ sprites: MainImageSprites; font: MenuFont } | null> {
+            const active = resources ?? await factory.getGameResources(GameTypes.LEMMINGS);
+            if (!active) return null;
+            resources = active;
+            titleSprites ??= await active.getMainImageSprites();
+            menuFont ??= await active.getMenuFont();
+            return { sprites: titleSprites, font: menuFont };
+        }
+
+        /** The DOS title screen; whatever is chosen there starts a new level or leaves the game. */
+        async function showTitle() {
+            const current = ++generation;
+            paused = true;
+            music?.suspend();
+            effects?.stop();
+            game?.getGameTimer().suspend();
+            try {
+                const menu = await loadMenuResources();
+                if (!menu || !stage || disposed || current !== generation) return;
+                const { frame, hits } = buildTitleScreen(menu.sprites, { rating, audio: audioMode });
+                stage.setOverlay(frame, (x, y) => {
+                    if (disposed || current !== generation) return;
+                    const action = hitAt(hits, x, y);
+                    switch (action?.kind) {
+                        case 'play':
+                            void playLevel(firstUnsolvedLevel(GameTypes.LEMMINGS, rating, groupLengths[rating] ?? 0, solvedLevels(rating)));
+                            break;
+                        case 'levels': void showLevelList(); break;
+                        case 'rating': rating = (rating + 1) % Math.max(1, groupLengths.length); void showTitle(); break;
+                        case 'audio': setAudioMode(nextAudioMode(audioMode)); void showTitle(); break;
+                        case 'setup': void router.push('/setup'); break;
+                    }
+                });
+            } catch (reason) {
+                if (current === generation && !disposed) error.value = reason instanceof Error ? reason.message : 'Could not show the menu.';
+            }
+        }
+
+        async function showLevelList() {
+            const current = ++generation;
+            try {
+                const menu = await loadMenuResources();
+                if (!menu || !resources || !stage) return;
+                const names = await resources.getLevelNames(rating);
+                if (disposed || current !== generation || !stage) return;
+                const { frame, hits } = buildLevelList(menu.sprites, menu.font, rating, names, solvedLevels(rating));
+                stage.setOverlay(frame, (x, y) => {
+                    if (disposed || current !== generation) return;
+                    const action = hitAt(hits, x, y);
+                    if (action?.kind === 'level') void playLevel({ gameType: GameTypes.LEMMINGS, groupIndex: rating, levelIndex: action.index });
+                    else if (action?.kind === 'back') void showTitle();
+                });
+            } catch (reason) {
+                if (current === generation && !disposed) error.value = reason instanceof Error ? reason.message : 'Could not list the levels.';
+            }
+        }
+
+        function setAudioMode(mode: AudioMode) {
+            audioMode = mode;
+            saveSettings({ speed: 1, musicEnabled: mode === 'music', soundEnabled: mode !== 'off' });
+            if (mode !== 'music') stopMusic();
+            if (mode === 'off') { effects?.stop(); effects = null; }
+        }
+
         /** Begin the loaded level once the player leaves its preview card. */
         function startLoadedGame() {
             if (!game || !stage) return;
@@ -148,6 +233,7 @@ export default defineComponent({
                 resources = nextResources;
                 menuFont = font;
                 location = next;
+                rating = next.groupIndex;
                 rememberLevel(next.gameType, next.groupIndex, next.levelIndex, 'dos');
 
                 const display = stage.getGameDisplay();
@@ -168,9 +254,10 @@ export default defineComponent({
                     if (firstAvailable !== undefined) game.queueCommand(new CommandSelectSkill(firstAvailable));
                 }
                 game.setNukeRequestHandler(confirmNuke);
+                game.setMenuRequestHandler(() => void showTitle());
 
                 const activeResources = nextResources;
-                effects = audio.sound ? new SoundEffectsPlayer(index => activeResources.getSoundTrack(index)) : null;
+                effects = audioMode !== 'off' ? new SoundEffectsPlayer(index => activeResources.getSoundTrack(index)) : null;
                 game.onSoundEffect.on(effect => {
                     if (effect === undefined || !effects || paused || document.hidden) return;
                     void effects.play(effect);
@@ -204,7 +291,7 @@ export default defineComponent({
 
                 const intro = buildLevelIntro(font, {
                     number: next.levelIndex + 1, name: level.name, lemmings: level.releaseCount, needed: level.needCount,
-                    releaseRate: level.releaseRate, minutes: level.timeLimit, rating: groupNames[next.groupIndex] ?? '',
+                    releaseRate: level.releaseRate, minutes: level.timeLimit, rating: nextResources.getLevelGroups()[next.groupIndex] ?? '',
                 });
                 stage.setOverlay(intro, () => {
                     if (disposed || current !== generation) return;
@@ -223,7 +310,6 @@ export default defineComponent({
                 const config = await factory.getConfig(GameTypes.LEMMINGS);
                 if (!config) throw new Error('The game configuration is not available.');
                 groupLengths = config.level.order.map(group => group.length);
-                groupNames = config.level.groups;
                 const start = suggestNextLevel(readLastLevel('dos'), readProgress('dos'), groupLengths)
                     ?? { gameType: GameTypes.LEMMINGS, groupIndex: 0, levelIndex: 0 };
                 await playLevel(start);

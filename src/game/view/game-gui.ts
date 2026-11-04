@@ -16,6 +16,8 @@ import { GameStateTypes } from '../game-state-types';
 export const DOS_MINIMAP = { x: 208, y: 18, width: 104, height: 20 } as const;
 /** Terrain is re-sampled for the minimap this often, in game ticks. */
 const MINIMAP_TERRAIN_REFRESH_TICKS = 4;
+/** Holding the pause button this long opens the menu. */
+const MENU_HOLD_MS = 700;
 const MINIMAP_TERRAIN_RGB = [0x30, 0xa0, 0x30] as const;
 const MINIMAP_LEMMING_RGB = [0xe0, 0xff, 0x80] as const;
 const MINIMAP_VIEW_RGB = [0xff, 0xff, 0xff] as const;
@@ -27,6 +29,8 @@ export class GameGui {
 
     private viewportProvider: (() => LevelViewport | null) | null = null;
     private minimapNavigationHandler: ((x: number, y: number) => void) | null = null;
+    private menuRequestHandler: (() => void) | null = null;
+    private menuHoldTimer: ReturnType<typeof setTimeout> | null = null;
     private minimapDragging = false;
     private minimapTerrain: Uint8Array | null = null;
     /** Game ticks since the terrain was last sampled. */
@@ -99,6 +103,17 @@ export class GameGui {
     public setMinimapNavigationHandler(handler: ((x: number, y: number) => void) | null) {
         this.minimapNavigationHandler = handler;
         this.minimapDragging = false;
+    }
+
+    /** Called when the pause button is held down; the game is already paused by then. */
+    public setMenuRequestHandler(handler: (() => void) | null) {
+        this.menuRequestHandler = handler;
+        this.clearMenuHold();
+    }
+
+    private clearMenuHold() {
+        if (this.menuHoldTimer !== null) clearTimeout(this.menuHoldTimer);
+        this.menuHoldTimer = null;
     }
 
     /** The minimap belongs to the DOS panel; the Windows toolbar draws its own. */
@@ -186,6 +201,14 @@ export class GameGui {
 
         if (panelIndex == 10) {
             this.gameTimer.toggle();
+            if (this.menuRequestHandler) {
+                this.clearMenuHold();
+                this.menuHoldTimer = setTimeout(() => {
+                    this.menuHoldTimer = null;
+                    if (this.gameTimer.isRunning()) this.gameTimer.suspend();
+                    this.menuRequestHandler?.();
+                }, MENU_HOLD_MS);
+            }
             return;
         }
 
@@ -250,6 +273,7 @@ export class GameGui {
             /// clear release rate change
             this.deltaReleaseRate = 0;
             this.minimapDragging = false;
+            this.clearMenuHold();
         })
 
         this.display.onDoubleClick.on((e) => {

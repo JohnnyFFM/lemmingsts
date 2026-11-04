@@ -127,6 +127,22 @@ export class GameResources {
         return this.config.level.groups;
     }
 
+    private levelNames = new Map<number, Promise<string[]>>();
+
+    /** The names of every level in a DOS rating, in play order, without decoding their graphics. */
+    public getLevelNames(levelMode: number): Promise<string[]> {
+        let names = this.levelNames.get(levelMode);
+        if (!names) {
+            const loader = new LevelLoader(this.fileProvider, this.config);
+            const count = this.config.level.getGroupLength(levelMode);
+            names = Promise.all(Array.from({ length: count }, (_, index) =>
+                loader.getLevelProperties(levelMode, index).then(properties => properties?.levelName.trim() ?? '')));
+            names.catch(() => this.levelNames.delete(levelMode));
+            this.levelNames.set(levelMode, names);
+        }
+        return names;
+    }
+
 
     private initSoundImage(): Promise<SoundImageManager> {
         if (this.soundImage) {

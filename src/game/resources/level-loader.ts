@@ -5,6 +5,7 @@ import { FileContainer } from './file/file-container';
 import { FileProvider } from './file/file-provider';
 import { GroundRenderer } from './ground-renderer';
 import { GroundReader } from './lemmings/ground-reader';
+import { LevelProperties } from './lemmings/level-properties';
 import { LevelReader } from './lemmings/level-reader';
 import { OddTableReader } from './lemmings/odd-table-reader';
 import { VgaSpecReader } from './lemmings/vga-spec-reader';
@@ -20,6 +21,21 @@ export class LevelLoader {
 
     constructor(private fileProvider: FileProvider, private config: GameConfig) {
         this.levelIndexResolve = new LevelIndexResolve(config);
+    }
+
+    /** Read only a level's properties (name, counts, rate, time), without decoding any graphics. */
+    public async getLevelProperties(levelMode: number, levelIndex: number): Promise<LevelProperties | undefined> {
+        const levelInfo = this.levelIndexResolve.resolve(levelMode, levelIndex);
+        if (!levelInfo) return;
+        const useOddTable = levelInfo.useOddTable && this.config.level.useOddTable;
+        const paddedFileId = ('0000' + levelInfo.fileId).slice(-3);
+        const [levelFile, oddFile] = await Promise.all([
+            this.fileProvider.loadBinary(this.config.path, this.config.level.filePrefix + paddedFileId + '.DAT'),
+            useOddTable ? this.fileProvider.loadBinary(this.config.path, 'ODDTABLE.DAT') : Promise.resolve(null),
+        ]);
+        const levelReader = new LevelReader(new FileContainer(levelFile).getPart(levelInfo.partIndex));
+        if (!oddFile) return levelReader.levelProperties;
+        return new OddTableReader(oddFile).getLevelProperties(levelInfo.levelNumber) ?? undefined;
     }
 
     /** return the map and it's config */

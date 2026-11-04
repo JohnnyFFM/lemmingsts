@@ -146,6 +146,11 @@ export class Game {
         this.gameGui.setMinimapNavigationHandler(handler);
     }
 
+    /** Called when the player holds the panel's pause button to open the menu. */
+    public setMenuRequestHandler(handler: (() => void) | null) {
+        this.gameGui.setMenuRequestHandler(handler);
+    }
+
     public setFastForwardRequestHandler(handler: (() => void) | null) {
         this.gameGui.setFastForwardRequestHandler(handler);
     }
@@ -210,6 +215,9 @@ export class Game {
         this.onPlayerAssignment.dispose();
         this.gameGui.setNukeRequestHandler(null);
         this.gameGui.setFastForwardRequestHandler(null);
+        this.gameGui.setMenuRequestHandler(null);
+        this.gameGui.setMinimapNavigationHandler(null);
+        this.gameGui.setViewportProvider(null);
         this.triggerManager.onSoundEffect.dispose();
     }
 
