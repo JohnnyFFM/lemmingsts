@@ -3,7 +3,7 @@ import { buildCodeEntry, buildLevelResult, drawScrollerText, hitAt, SCROLLER } f
 import { Frame } from '../../src/game/resources/frame';
 import { MenuFont, MENU_GLYPH_WIDTH } from '../../src/game/resources/menu-font';
 import { ColorPalette } from '../../src/game/resources/lemmings/color-palette';
-import { locationOfLevelNumber } from '../../src/views/dos-view';
+import { centredScreenX, locationOfLevelNumber } from '../../src/views/dos-view';
 
 class RecordingFont extends MenuFont {
     public lines: Array<{ text: string; x: number; y: number }> = [];
@@ -45,6 +45,14 @@ describe('level code entry screen', () => {
         buildLevelResult(font, { rescuedPercent: 100, neededPercent: 10, outOfTime: false, succeeded: true, accessCode: { levelNumber: 2, code: 'IJJLDLCCCL' } });
         expect(font.lines.map(line => line.text)).toContain('Your Access Code for Level 2');
         expect(font.lines.map(line => line.text)).toContain('is IJJLDLCCCL');
+    });
+
+    it('centres the DOS window inside a wider view and stays within the level', () => {
+        expect(centredScreenX(640, 320, 1600)).toBe(640);   // the DOS width itself: unchanged
+        expect(centredScreenX(640, 480, 1600)).toBe(560);   // 160 extra pixels, 80 to each side
+        expect(centredScreenX(40, 480, 1600)).toBe(0);      // near the left edge: clamp
+        expect(centredScreenX(1500, 480, 1600)).toBe(1120); // near the right edge: clamp
+        expect(centredScreenX(100, 2000, 1600)).toBe(0);    // the whole level fits
     });
 
     it('maps a level number across the ratings', () => {

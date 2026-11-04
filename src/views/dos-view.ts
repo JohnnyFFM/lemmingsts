@@ -54,6 +54,18 @@ export function nextLevelLocation(location: LevelLocation, groupLengths: readonl
     return location;
 }
 
+/** The DOS game showed levels through a window this wide; its stored start positions assume it. */
+export const DOS_VIEW_WIDTH = 320;
+
+/**
+ * Where a wider view should start so that the DOS game's 320-pixel window
+ * sits in its middle, with the extra width split evenly to both sides.
+ */
+export function centredScreenX(screenPositionX: number, visibleWidth: number, levelWidth: number): number {
+    const x = screenPositionX - Math.max(0, (visibleWidth - DOS_VIEW_WIDTH) / 2);
+    return Math.max(0, Math.min(Math.max(0, levelWidth - visibleWidth), Math.round(x)));
+}
+
 /** The location of a 1-based level number across the whole game, or null past the end. */
 export function locationOfLevelNumber(levelNumber: number, gameType: number, groupLengths: readonly number[]): LevelLocation | null {
     let remaining = levelNumber - 1;
@@ -301,6 +313,8 @@ export default defineComponent({
                 level.render(display);
                 display.setScreenPosition(level.screenPositionX, 0);
                 stage.applyDosLayout();
+                const viewport = stage.getGameViewport();
+                if (viewport) stage.setGameViewPointPosition(centredScreenX(level.screenPositionX, viewport.width, level.width), 0);
 
                 const nextGame = await factory.getGame(GameTypes.LEMMINGS, next.groupIndex, next.levelIndex);
                 if (!nextGame) throw new Error('Could not start this level.');
