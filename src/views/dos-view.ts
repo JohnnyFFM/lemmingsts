@@ -310,9 +310,11 @@ export default defineComponent({
                 const config = await factory.getConfig(GameTypes.LEMMINGS);
                 if (!config) throw new Error('The game configuration is not available.');
                 groupLengths = config.level.order.map(group => group.length);
-                const start = suggestNextLevel(readLastLevel('dos'), readProgress('dos'), groupLengths)
-                    ?? { gameType: GameTypes.LEMMINGS, groupIndex: 0, levelIndex: 0 };
-                await playLevel(start);
+                // Like the DOS game, open on the title screen, with the rating sign
+                // already showing where the player left off; F1 then continues from there.
+                const next = suggestNextLevel(readLastLevel('dos'), readProgress('dos'), groupLengths);
+                rating = next ? next.groupIndex : 0;
+                await showTitle();
             } catch (reason) {
                 if (!disposed) error.value = reason instanceof Error ? reason.message : 'Could not start the game.';
             }
