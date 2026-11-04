@@ -77,6 +77,23 @@ describe('fast forward from the DOS panel', () => {
         }
     });
 
+    it('blanks the whole readout row when a flashed label expires', () => {
+        vi.useFakeTimers();
+        try {
+            const { instance, display } = gui();
+            instance.setFastForwardRequestHandler(() => 'FAST FORWARD');
+            display.onMouseDown.trigger(new Position2D(300, 6));
+            display.onMouseUp.trigger(new Position2D(300, 6));
+            display.drawFrameCovered.mockClear();
+            vi.advanceTimersByTime(1600);
+            // Forty space glyphs across the row, at x = 0, 8, ... 312, before the readouts return.
+            const blanks = display.drawFrameCovered.mock.calls.filter(call => call[2] === 0).map(call => call[1]);
+            expect(blanks.slice(0, 40)).toEqual(Array.from({ length: 40 }, (_, i) => i * 8));
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
     it('still works as a tap when no filter handler is installed', () => {
         const { instance, display } = gui();
         const fastForward = vi.fn(() => 'FAST FORWARD');

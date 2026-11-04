@@ -143,6 +143,8 @@ export class GameGui {
         this.noticeTimer = setTimeout(() => {
             this.noticeTimer = null;
             this.notice = '';
+            // The readouts leave gaps between them; blank the whole row first so no letter survives.
+            if (this.display) this.drawGreenString(this.display, ''.padEnd(40), 0, 0);
             this.gameTimeChanged = true;
             this.render();
             this.display?.redraw();
