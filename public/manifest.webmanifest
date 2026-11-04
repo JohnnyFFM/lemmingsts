@@ -1,12 +1,13 @@
 {
-  "name": "Lemmings TS",
-  "short_name": "Lemmings TS",
-  "description": "A little adventure with your original Lemmings game files.",
+  "name": "Lemmings",
+  "short_name": "Lemmings",
+  "description": "The original DOS Lemmings, played from your own game files.",
   "start_url": "./",
   "scope": "./",
-  "display": "standalone",
-  "background_color": "#101c17",
-  "theme_color": "#18251c",
+  "display": "fullscreen",
+  "orientation": "landscape",
+  "background_color": "#000000",
+  "theme_color": "#000000",
   "icons": [
     { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
     { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" }

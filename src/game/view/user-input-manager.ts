@@ -117,6 +117,7 @@ export class UserInputManager {
         this.activePointer = event.pointerId;
         this.activePointerType = event.pointerType;
         const position = this.getRelativePosition(event.clientX, event.clientY);
+        position.touch = event.pointerType === 'touch';
         this.mouseDownX = this.lastMouseX = position.x;
         this.mouseDownY = this.lastMouseY = position.y;
         this.element.setPointerCapture?.(event.pointerId);

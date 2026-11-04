@@ -12,6 +12,10 @@ const WINDOWS_MAP_X = 608, WINDOWS_MAP_Y = 20, WINDOWS_MAP_WIDTH = 320, WINDOWS_
 const WINDOWS_STATUS_Y = 98;
 const WINDOWS_SCROLL_X = 4, WINDOWS_SCROLL_Y = 0, WINDOWS_SCROLL_WIDTH = 952, WINDOWS_SCROLL_HEIGHT = 16;
 const WINDOWS_SCROLL_ARROW = 16;
+/** DOS full-screen layout: the original 320×40 panel spans the whole width. */
+const DOS_PANEL_WIDTH = 320, DOS_PANEL_HEIGHT = 40, DOS_LEVEL_HEIGHT = 160, DOS_STAGE_HEIGHT = 600;
+/** A touch held this long without moving switches the press into a pan. */
+const HOLD_TO_PAN_MS = 250;
 export interface WindowsStatus {
     needed: number;
     total: number;
@@ -42,6 +46,9 @@ export class Stage {
     private minimapDragging = false;
     private scrollbarDragging = false;
     private scrollbarDragOffset = 0;
+    private dosViewport: { width: number; height: number } | null = null;
+    private dosPanelScale: number | null = null;
+    private holdTimer: ReturnType<typeof setTimeout> | null = null;
     public readonly onGraphicsError = new EventHandler<string>();
     /** True when the playfield is away from its starting scale. */
     public readonly onZoomChange = new EventHandler<boolean>();
@@ -164,12 +171,25 @@ export class Stage {
             this.pressedImage = stageImage;
             this.pressPosition = new Position2D(e.x, e.y);
             this.dragging = false;
+            this.clearHoldTimer();
             // The playfield waits until release so a pan doesn't assign a skill.
             // The panel still receives down immediately for held release-rate buttons.
             if (stageImage !== this.gameImgProps) {
                 stageImage.display.onMouseDown.trigger(this.calcPosition2D(stageImage, e));
+            } else if (e.touch) {
+                // Touch-and-hold on the level becomes a pan, so the view can be
+                // moved from a standstill without first crossing the tap threshold.
+                this.holdTimer = setTimeout(() => {
+                    this.holdTimer = null;
+                    if (this.pressedImage === stageImage) this.dragging = true;
+                }, HOLD_TO_PAN_MS);
             }
         });
+    }
+
+    private clearHoldTimer(): void {
+        if (this.holdTimer !== null) clearTimeout(this.holdTimer);
+        this.holdTimer = null;
     }
 
 
@@ -193,6 +213,7 @@ export class Stage {
             const pressPosition = this.pressPosition;
             this.pressedImage = null;
             this.pressPosition = null;
+            this.clearHoldTimer();
             if (!stageImage || !stageImage.display || !pressPosition) return;
 
             const distance = Math.hypot(e.x - pressPosition.x, e.y - pressPosition.y);
@@ -308,6 +329,7 @@ export class Stage {
     private cancelPress(): void {
         this.minimapDragging = false;
         this.scrollbarDragging = false;
+        this.clearHoldTimer();
         if (this.pressedImage && this.pressedImage.display && this.pressPosition) {
             this.pressedImage.display.onMouseUp.trigger(this.calcPosition2D(this.pressedImage, this.pressPosition));
         }
@@ -413,11 +435,65 @@ export class Stage {
 
     /** Fill more of the stage with the Windows panel while preserving its proportions. */
     private updateWindowsPanelScale(): void {
+        if (this.dosPanelScale) {
+            this.guiImgProps.viewPoint.scale = this.dosPanelScale;
+            return;
+        }
         if (!this.minimapLemmings) {
             this.guiImgProps.viewPoint.scale = this.defaultZoom;
             return;
         }
         this.guiImgProps.viewPoint.scale = WINDOWS_ICON_SCALE;
+    }
+
+    /**
+     * Lay the stage out for a full-screen DOS game: the drawing buffer takes
+     * the viewport's aspect ratio, the original panel spans the full width and
+     * the level is fitted to the remaining height until the player zooms.
+     */
+    public setDosViewport(width: number, height: number): void {
+        if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return;
+        if (this.dosViewport?.width === width && this.dosViewport.height === height) return;
+        this.dosViewport = { width, height };
+        this.applyDosLayout();
+    }
+
+    /** Re-fit the level after it has been rendered or the viewport changed. */
+    public applyDosLayout(): void {
+        if (!this.dosViewport) return;
+        const image = this.gameImgProps;
+        const oldOffset = this.contentOffset(image);
+        const centerX = image.viewPoint.x + (image.width / 2 - oldOffset.x) / image.viewPoint.scale;
+        const centerY = image.viewPoint.y + (image.height / 2 - oldOffset.y) / image.viewPoint.scale;
+        const stageWidth = Math.max(DOS_PANEL_WIDTH, Math.round(DOS_STAGE_HEIGHT * this.dosViewport.width / this.dosViewport.height));
+        this.dosPanelScale = stageWidth / DOS_PANEL_WIDTH;
+        if (this.stageCav.width !== stageWidth || this.stageCav.height !== DOS_STAGE_HEIGHT) {
+            this.controller.cancelActive();
+            // Setting a canvas dimension clears it, so skip unchanged dimensions.
+            if (this.stageCav.width !== stageWidth) this.stageCav.width = stageWidth;
+            if (this.stageCav.height !== DOS_STAGE_HEIGHT) this.stageCav.height = DOS_STAGE_HEIGHT;
+        }
+        this.updateStageSize();
+        const levelHeight = image.display?.getHeight() || DOS_LEVEL_HEIGHT;
+        this.fittedZoom = this.limitValue(0.5, image.height / levelHeight, 10);
+        if (!this.customZoom) image.viewPoint.scale = this.fittedZoom;
+        else if (!this.isZoomChanged(image.viewPoint.scale)) this.customZoom = false;
+        if (image.display) {
+            const offset = this.contentOffset(image);
+            image.viewPoint.x = this.limitValue(0,
+                centerX - (image.width / 2 - offset.x) / image.viewPoint.scale,
+                image.display.getWidth() - image.width / image.viewPoint.scale);
+            image.viewPoint.y = this.limitValue(0,
+                centerY - (image.height / 2 - offset.y) / image.viewPoint.scale,
+                image.display.getHeight() - image.height / image.viewPoint.scale);
+        }
+        this.onZoomChange.trigger(this.isZoomChanged(image.viewPoint.scale));
+        this.redraw();
+    }
+
+    /** The scale at which the DOS panel is currently drawn, or null outside that layout. */
+    public getDosPanelScale(): number | null {
+        return this.dosPanelScale;
     }
 
     /** Move the camera by logical world pixels (also available to keyboard controls). */
@@ -603,6 +679,8 @@ export class Stage {
 
     public dispose(): void {
         this.cancelPress();
+        this.dosViewport = null;
+        this.dosPanelScale = null;
         this.keyboardTarget = null;
         this.exampleHint = null;
         this.minimapLemmings = null;
@@ -673,7 +751,8 @@ export class Stage {
         const stageWidth = ctx.canvas.width;
 
         this.gameImgProps.y = 0;
-        const panelHeight = this.minimapLemmings ? WINDOWS_PANEL_HEIGHT : 100;
+        const panelHeight = this.dosPanelScale ? Math.round(DOS_PANEL_HEIGHT * this.dosPanelScale)
+            : this.minimapLemmings ? WINDOWS_PANEL_HEIGHT : 100;
         this.gameImgProps.height = stageHeight - panelHeight;
         this.gameImgProps.width = stageWidth;
 
