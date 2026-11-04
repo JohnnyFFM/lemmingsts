@@ -78,7 +78,7 @@ it('rejects corrupt descriptors and out-of-bounds or inconsistent directory exte
 
 it('rejects an image without the expected Windows Lemmings folder', async () => {
   const image = testIso(); image.set(new TextEncoder().encode('SOMETHNG'), 20 * BLOCK + 33);
-  await expect(readWindowsAudioIso(new File([image], 'other.iso'))).rejects.toThrow('does not contain a LEMMINGS folder');
+  await expect(readWindowsAudioIso(new File([image], 'other.iso'))).rejects.toThrow('does not contain a LEMMINGS or WINLEMM folder');
 });
 
 it('skips an oversized optional title bitmap while keeping other ISO graphics available', async () => {

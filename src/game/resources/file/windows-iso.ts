@@ -95,8 +95,10 @@ async function readWindowsIsoFiles(image: File, selections: ReadonlyArray<readon
     if (matching.length > 1) return invalid();
     return matching[0];
   };
-  const game = namedDirectory(await entries(root), 'LEMMINGS');
-  if (!game) throw new Error('This ISO does not contain a LEMMINGS folder.');
+  // The 1995 disc keeps the game in LEMMINGS; the 2001 re-release in WINLEMM.
+  const rootEntries = await entries(root);
+  const game = namedDirectory(rootEntries, 'LEMMINGS') ?? namedDirectory(rootEntries, 'WINLEMM');
+  if (!game) throw new Error('This ISO does not contain a LEMMINGS or WINLEMM folder.');
   const folders = await entries(game);
   const recognized = new Map<string, Entry>();
   for (const [folderName, allowed] of selections) {
