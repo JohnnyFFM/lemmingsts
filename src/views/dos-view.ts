@@ -175,6 +175,9 @@ export default defineComponent({
                 game.setGameDisplay(stage.getGameDisplay());
                 game.setGuiDisplay(stage.getGuiDisplay());
                 stage.getGuiDisplay().onMouseDown.on(syncPauseState);
+                const activeStage = stage;
+                game.setViewportProvider(() => activeStage.getGameViewport());
+                game.setMinimapNavigationHandler((x, y) => activeStage.revealGamePosition(x, y));
 
                 game.onGameEnd.on(result => {
                     if (!result || !game) return;

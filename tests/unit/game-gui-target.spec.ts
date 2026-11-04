@@ -16,7 +16,7 @@ function renderTarget(need: number, total: number) {
   const covered: { character: string; x: number; y: number }[] = [];
   const event = { on: vi.fn() };
   const display = {
-    onMouseDown: event, onMouseUp: event, onDoubleClick: event,
+    onMouseDown: event, onMouseUp: event, onMouseMove: event, onDoubleClick: event,
     initSize: vi.fn(), setBackground: vi.fn(), drawFrame: vi.fn(), drawRect: vi.fn(),
     drawFrameCovered: vi.fn((frame, x, y) => {
       const character = letters.get(frame);

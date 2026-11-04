@@ -16,7 +16,7 @@ describe('classic nuke control', () => {
         const event = () => new EventHandler();
         const skills = { onCountChanged: event(), onSelectionChanged: event() };
         const timer = { onGameTick: event() };
-        const display = { onMouseDown: new EventHandler<Position2D>(), onMouseUp: event(), onDoubleClick: new EventHandler<Position2D>() };
+        const display = { onMouseDown: new EventHandler<Position2D>(), onMouseUp: event(), onMouseMove: new EventHandler<Position2D>(), onDoubleClick: new EventHandler<Position2D>() };
         const gui = new GameGui(game as unknown as Game, {} as SkillPanelSprites, skills as unknown as GameSkills,
             timer as unknown as GameTimer, {} as GameVictoryCondition);
         gui.setGuiDisplay(display as unknown as DisplayImage);

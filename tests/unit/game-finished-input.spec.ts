@@ -28,7 +28,7 @@ function createGame() {
 }
 
 function panelInput(game: Game) {
-    const display = { onMouseDown: new EventHandler<Position2D>(), onMouseUp: new EventHandler<Position2D>(),
+    const display = { onMouseDown: new EventHandler<Position2D>(), onMouseUp: new EventHandler<Position2D>(), onMouseMove: new EventHandler<Position2D>(),
         onDoubleClick: new EventHandler<Position2D>() };
     game.setGuiDisplay(display as unknown as DisplayImage);
     return display;
