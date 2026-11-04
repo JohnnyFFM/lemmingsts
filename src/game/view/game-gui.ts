@@ -12,8 +12,25 @@ import { DisplayImage } from './display-image';
 import { Frame } from '../resources/frame';
 import { GameStateTypes } from '../game-state-types';
 
+/** The DOS panel's minimap: the black area inside the red frame at the right of the panel. */
+export const DOS_MINIMAP = { x: 208, y: 18, width: 104, height: 20 } as const;
+/** Terrain is re-sampled for the minimap this often, in game ticks. */
+const MINIMAP_TERRAIN_REFRESH_TICKS = 4;
+const MINIMAP_TERRAIN_RGB = [0x30, 0xa0, 0x30] as const;
+const MINIMAP_LEMMING_RGB = [0xe0, 0xff, 0x80] as const;
+const MINIMAP_VIEW_RGB = [0xff, 0xff, 0xff] as const;
+
+export interface LevelViewport { x: number; y: number; width: number; height: number }
+
 /** handles the in-game-gui. e.g. the panel on the bottom of the game */
 export class GameGui {
+
+    private viewportProvider: (() => LevelViewport | null) | null = null;
+    private minimapNavigationHandler: ((x: number, y: number) => void) | null = null;
+    private minimapDragging = false;
+    private minimapTerrain: Uint8Array | null = null;
+    /** Game ticks since the terrain was last sampled. */
+    private minimapTerrainAge = MINIMAP_TERRAIN_REFRESH_TICKS;
 
     private gameTimeChanged = true;
     private skillsCountChanged = true;
@@ -75,6 +92,38 @@ export class GameGui {
         this.nukeRequestHandler = handler;
     }
 
+    public setViewportProvider(provider: (() => LevelViewport | null) | null) {
+        this.viewportProvider = provider;
+    }
+
+    public setMinimapNavigationHandler(handler: ((x: number, y: number) => void) | null) {
+        this.minimapNavigationHandler = handler;
+        this.minimapDragging = false;
+    }
+
+    /** The minimap belongs to the DOS panel; the Windows toolbar draws its own. */
+    private get hasDosMinimap(): boolean { return !this.windowsPanel && !!this.game.level; }
+
+    private isOnDosMinimap(e: { x: number; y: number }): boolean {
+        return this.hasDosMinimap && e.x >= DOS_MINIMAP.x && e.x < DOS_MINIMAP.x + DOS_MINIMAP.width &&
+            e.y >= DOS_MINIMAP.y && e.y < DOS_MINIMAP.y + DOS_MINIMAP.height;
+    }
+
+    /** Level pixels per minimap pixel, chosen so the whole level fits the box. */
+    private minimapScale(): { x: number; y: number } {
+        const level = this.game.level;
+        return { x: Math.max(1, Math.ceil(level.width / DOS_MINIMAP.width)), y: Math.max(1, Math.ceil(level.height / DOS_MINIMAP.height)) };
+    }
+
+    /** Centre the view on the level position under a minimap point; off-map points clamp to the edge. */
+    private navigateDosMinimap(e: { x: number; y: number }) {
+        if (!this.minimapNavigationHandler || !this.hasDosMinimap) return;
+        const level = this.game.level, scale = this.minimapScale();
+        const x = Math.max(0, Math.min(level.width - 1, (e.x - DOS_MINIMAP.x) * scale.x));
+        const y = Math.max(0, Math.min(level.height - 1, (e.y - DOS_MINIMAP.y) * scale.y));
+        this.minimapNavigationHandler(x, y);
+    }
+
     constructor(private game: Game,
         private skillPanelSprites: SkillPanelSprites,
         private skills: GameSkills,
@@ -83,6 +132,7 @@ export class GameGui {
 
         gameTimer.onGameTick.on(() => {
             this.gameTimeChanged = true;
+            this.minimapTerrainAge++;
             this.doReleaseRateChanges();
             // Advance the supplied Win95 sprite sequences with simulation
             // ticks: pause freezes them and the speed control scales them.
@@ -175,8 +225,15 @@ export class GameGui {
         /// handle user input in gui
         this.display.onMouseDown.on((e) => {
             this.deltaReleaseRate = 0;
+            this.minimapDragging = false;
 
             if (!e) {
+                return;
+            }
+
+            if (this.isOnDosMinimap(e)) {
+                this.minimapDragging = true;
+                this.navigateDosMinimap(e);
                 return;
             }
 
@@ -185,9 +242,14 @@ export class GameGui {
             }
         });
 
+        this.display.onMouseMove.on((e) => {
+            if (e && this.minimapDragging) this.navigateDosMinimap(e);
+        });
+
         this.display.onMouseUp.on(() => {
             /// clear release rate change
             this.deltaReleaseRate = 0;
+            this.minimapDragging = false;
         })
 
         this.display.onDoubleClick.on((e) => {
@@ -319,6 +381,68 @@ export class GameGui {
             if (this.isWindowsLayout && this.fastForwardActive) this.drawSelection(display, 11);
         }
 
+        if (this.hasDosMinimap) this.renderDosMinimap(display);
+    }
+
+    /** Terrain in green, live lemmings as light dots and the visible area as a white box, as on the DOS panel. */
+    private renderDosMinimap(display: DisplayImage) {
+        const level = this.game.level;
+        const scale = this.minimapScale();
+        const mapWidth = Math.min(DOS_MINIMAP.width, Math.ceil(level.width / scale.x));
+        const mapHeight = Math.min(DOS_MINIMAP.height, Math.ceil(level.height / scale.y));
+        // The level's own area is centred in the box; the DOS game leaves a small margin too.
+        const originX = DOS_MINIMAP.x + Math.floor((DOS_MINIMAP.width - mapWidth) / 2);
+        const originY = DOS_MINIMAP.y + Math.floor((DOS_MINIMAP.height - mapHeight) / 2);
+
+        if (!this.minimapTerrain || this.minimapTerrain.length !== mapWidth * mapHeight || this.minimapTerrainAge >= MINIMAP_TERRAIN_REFRESH_TICKS) {
+            this.minimapTerrain = this.sampleMinimapTerrain(mapWidth, mapHeight, scale.x, scale.y);
+            this.minimapTerrainAge = 0;
+        }
+
+        display.fillRect(DOS_MINIMAP.x, DOS_MINIMAP.y, DOS_MINIMAP.width, DOS_MINIMAP.height, 0, 0, 0);
+        const terrain = this.minimapTerrain;
+        for (let y = 0; y < mapHeight; y++) {
+            for (let x = 0; x < mapWidth; x++) {
+                if (terrain[y * mapWidth + x]) display.setPixel(originX + x, originY + y, ...MINIMAP_TERRAIN_RGB);
+            }
+        }
+
+        for (const lemming of this.game.getLemmingManager().getSelectableLemmings()) {
+            const x = Math.floor(lemming.x / scale.x), y = Math.floor(lemming.y / scale.y);
+            if (x >= 0 && x < mapWidth && y >= 0 && y < mapHeight) display.setPixel(originX + x, originY + y, ...MINIMAP_LEMMING_RGB);
+        }
+
+        const view = this.viewportProvider?.();
+        if (view) {
+            const x1 = originX + Math.floor(view.x / scale.x), y1 = originY + Math.floor(view.y / scale.y);
+            const x2 = Math.min(originX + mapWidth, x1 + Math.max(1, Math.round(view.width / scale.x))) - 1;
+            const y2 = Math.min(originY + mapHeight, y1 + Math.max(1, Math.round(view.height / scale.y))) - 1;
+            display.drawHorizontalLine(x1, y1, x2, ...MINIMAP_VIEW_RGB);
+            display.drawHorizontalLine(x1, y2, x2, ...MINIMAP_VIEW_RGB);
+            display.drawVerticalLine(x1, y1, y2, ...MINIMAP_VIEW_RGB);
+            display.drawVerticalLine(x2, y1, y2, ...MINIMAP_VIEW_RGB);
+        }
+    }
+
+    /** One byte per minimap cell: 1 when any sampled level pixel in that cell is ground. */
+    private sampleMinimapTerrain(mapWidth: number, mapHeight: number, scaleX: number, scaleY: number): Uint8Array {
+        const level = this.game.level;
+        const terrain = new Uint8Array(mapWidth * mapHeight);
+        const stepX = Math.max(1, Math.floor(scaleX / 4)), stepY = Math.max(1, Math.floor(scaleY / 2));
+        for (let my = 0; my < mapHeight; my++) {
+            for (let mx = 0; mx < mapWidth; mx++) {
+                const left = mx * scaleX, top = my * scaleY;
+                const right = Math.min(level.width, left + scaleX), bottom = Math.min(level.height, top + scaleY);
+                let solid = false;
+                for (let y = top; y < bottom && !solid; y += stepY) {
+                    for (let x = left; x < right; x += stepX) {
+                        if (level.hasGroundAt(x, y)) { solid = true; break; }
+                    }
+                }
+                if (solid) terrain[my * mapWidth + mx] = 1;
+            }
+        }
+        return terrain;
     }
 
     /** Composite player-supplied 32×40 artwork onto native grey Windows buttons. */

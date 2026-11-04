@@ -36,6 +36,7 @@ const mock = vi.hoisted(() => {
         getVictoryCondition: vi.fn(() => ({ getCurrentReleaseRate: () => 50, getSurvivorsCount: () => 3 })),
         setGameDisplay: vi.fn(), setGuiDisplay: vi.fn(), setWindowsPanel: vi.fn(), setWindowsIconAnimationsEnabled: vi.fn(), setNukeRequestHandler: vi.fn((handler: () => void) => { nukeRequest.handler = handler; }),
         setFastForwardRequestHandler: vi.fn((handler: () => void) => { fastForwardRequest.handler = handler; }), setFastForwardActive: vi.fn(),
+        setViewportProvider: vi.fn(), setMinimapNavigationHandler: vi.fn(),
         start: vi.fn(() => timer.continue()),
         stop: vi.fn(() => timer.suspend()), queueCommand: vi.fn(() => true),
         onGameEnd: { on: vi.fn((handler: (result: { state: number; survivorPercentage: number }) => void) => { endEvent.handler = handler; }) },

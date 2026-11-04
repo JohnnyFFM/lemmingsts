@@ -428,6 +428,12 @@ export default defineComponent({
                 stage.clearInputBindings();
                 game.setGameDisplay(stage.getGameDisplay());
                 game.setGuiDisplay(stage.getGuiDisplay());
+                if (gameMode.value === 'dos') {
+                    // The classic panel paints its own minimap; give it the camera and let it move the view.
+                    const activeStage = stage;
+                    game.setViewportProvider(() => activeStage.getGameViewport());
+                    game.setMinimapNavigationHandler((x, y) => activeStage.revealGamePosition(x, y));
+                }
                 if (gameMode.value === 'windows' && nativeWindowsPanel.value) {
                     const activeGame = game;
                     stage.setMinimapProvider(() => activeGame.getLemmingManager().getSelectableLemmings());

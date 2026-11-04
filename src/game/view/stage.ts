@@ -235,6 +235,10 @@ export class Stage {
                     } else if (this.dragging) {
                         this.updateViewPoint(stageImage, e.deltaX, e.deltaY, 0);
                     }
+                } else if (stageImage.display) {
+                    // A press that started on the panel keeps reporting its
+                    // movement, so the panel's minimap can be dragged.
+                    stageImage.display.onMouseMove.trigger(this.calcPosition2D(stageImage, e));
                 }
             }
             else {
@@ -579,6 +583,17 @@ export class Stage {
         this.exampleHint = position;
         if (position) this.revealGamePosition(position.x, position.y);
         else this.redraw();
+    }
+
+    /** The part of the level currently on screen, in level pixels. */
+    public getGameViewport(): { x: number; y: number; width: number; height: number } | null {
+        const image = this.gameImgProps;
+        if (!image.display) return null;
+        const levelWidth = image.display.getWidth(), levelHeight = image.display.getHeight();
+        if (!levelWidth || !levelHeight) return null;
+        return { x: image.viewPoint.x, y: image.viewPoint.y,
+            width: Math.min(levelWidth, image.width / image.viewPoint.scale),
+            height: Math.min(levelHeight, image.height / image.viewPoint.scale) };
     }
 
     public revealGamePosition(x: number, y: number): void {

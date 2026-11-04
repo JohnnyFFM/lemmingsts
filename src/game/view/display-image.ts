@@ -133,6 +133,16 @@ export class DisplayImage {
         this.drawVerticalLine(rect.x2, rect.y1, rect.y2, red, green, blue);
     }
 
+    /** fill a solid rectangle, clipped to the display */
+    public fillRect(x: number, y: number, width: number, height: number, red: number, green: number, blue: number) {
+        if (!this.imgData) return;
+        const x1 = Math.max(0, x), y1 = Math.max(0, y);
+        const x2 = Math.min(this.imgData.width, x + width), y2 = Math.min(this.imgData.height, y + height);
+        for (let py = y1; py < y2; py++) {
+            for (let px = x1; px < x2; px++) this.setPixel(px, py, red, green, blue);
+        }
+    }
+
     /** draw a rect to the display */
     public drawRect(x: number, y: number, width: number, height: number, red: number, green: number, blue: number) {
 

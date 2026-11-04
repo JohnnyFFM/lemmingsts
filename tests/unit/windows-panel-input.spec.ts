@@ -22,7 +22,7 @@ function fixture() {
   const frame = new Frame(8, 8);
   const sprites = { getPanelSprite: () => new Frame(320, 40), getLetterSprite: () => undefined,
     getNumberSpriteLeft: () => frame, getNumberSpriteRight: () => frame, getNumberSpriteEmpty: () => frame };
-  const display = { onMouseDown: new EventHandler<Position2D>(), onMouseUp: events(), onDoubleClick: new EventHandler<Position2D>(),
+  const display = { onMouseDown: new EventHandler<Position2D>(), onMouseUp: events(), onMouseMove: new EventHandler<Position2D>(), onDoubleClick: new EventHandler<Position2D>(),
     initSize: vi.fn(), setBackground: vi.fn(), getImageData: () => undefined, drawFrameCovered: vi.fn(), drawFrame: vi.fn(), drawRect: vi.fn() };
   const gui = new GameGui(game as unknown as Game, sprites as unknown as SkillPanelSprites,
     skills as unknown as GameSkills, timer as unknown as GameTimer, victory as unknown as GameVictoryCondition);
