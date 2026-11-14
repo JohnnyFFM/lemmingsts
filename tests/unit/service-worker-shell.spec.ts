@@ -12,6 +12,7 @@ function worker({ rejectWrites = false, rejectOpen = false } = {}) {
     const network = new Map<string, Response>();
     let offline = false;
     let stalled = false;
+    let tookOver = false;
     const requested: string[] = [];
     const navigator = { onLine: true };
     const fetch = async (request: string | { url: string }) => {
@@ -35,7 +36,7 @@ function worker({ rejectWrites = false, rejectOpen = false } = {}) {
         },
     };
     const listeners: Record<string, (event: any) => void> = {};
-    const self = { navigator, location: { href: `${origin}sw.js` }, clients: { claim: async () => {} },
+    const self = { navigator, skipWaiting: async () => { tookOver = true; }, location: { href: `${origin}sw.js` }, clients: { claim: async () => {} },
         addEventListener: (name: string, listener: (event: any) => void) => { listeners[name] = listener; } };
     const caches = { open: async () => {
         if (rejectOpen) throw new Error('cache storage unavailable');
@@ -53,7 +54,7 @@ function worker({ rejectWrites = false, rejectOpen = false } = {}) {
         listeners.install({ waitUntil: (promise: Promise<void>) => { result = promise; } });
         return result;
     };
-    return { entries, network, request, install, requested, goOffline: () => { offline = true; },
+    return { entries, network, request, install, requested, tookOver: () => tookOver, goOffline: () => { offline = true; },
         reportOffline: () => { navigator.onLine = false; }, stall: () => { stalled = true; } };
 }
 
@@ -138,6 +139,7 @@ describe('offline shell updates', () => {
         }
         app.network.set(`${origin}assets/new.js`, new Response('ok', { headers: { 'Content-Type': 'text/javascript' } }));
         await expect(app.install()).rejects.toThrow('asset unavailable or invalid');
+        expect(app.tookOver()).toBe(false);
         expect(await app.entries.get(origin)!.clone().text()).toBe(oldHtml);
         expect(await app.entries.get(configUrl)!.clone().text()).toBe('working config');
     });
@@ -167,6 +169,8 @@ describe('offline shell updates', () => {
         const paths = ['data/config.json', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/maskable-512.png'];
         for (const path of paths) app.network.set(`${origin}${path}`, new Response(`new ${path}`));
         await app.install();
+        // An installed app is rarely closed completely: the new worker must not wait for that.
+        expect(app.tookOver()).toBe(true);
         app.goOffline();
         expect(await (await app.request(origin)).text()).toBe(newHtml);
         for (const path of paths) expect(await (await app.request(`${origin}${path}`, 'cors')).text()).toBe(`new ${path}`);

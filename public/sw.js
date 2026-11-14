@@ -70,6 +70,10 @@ self.addEventListener('install', event => {
     // working offline config even if installation later fails on a script.
     await cacheShell(cache, response, ['data/config.json', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/maskable-512.png']
       .map(path => new URL(path, base).href));
+    // Take over from the previous worker now. Otherwise it keeps control for as
+    // long as the installed app is not fully closed, and a fix never arrives.
+    // Files of the build that is still open stay in the cache.
+    await self.skipWaiting();
   })());
 });
 
