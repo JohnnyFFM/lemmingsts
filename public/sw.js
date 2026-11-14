@@ -8,6 +8,21 @@ const gamePath = new URL('game/', base).pathname;
 const localGamePath = new URL('data/local-game/', base).pathname;
 const localAudioPath = new URL('data/local-windows-audio/', base).pathname;
 const localGraphicsPath = new URL('data/local-windows-graphics/', base).pathname;
+const assetsPath = new URL('assets/', base).pathname;
+// How long a start may wait for the network before the saved app is used.
+const NETWORK_WAIT_MS = 3000;
+
+const isOffline = () => self.navigator?.onLine === false;
+// Build output under assets/ carries a content hash in its name and never changes.
+const isImmutable = url => new URL(url).pathname.startsWith(assetsPath) && /.(?:js|css)$/.test(new URL(url).pathname);
+
+// Settle with the promise, or reject once the limit has passed. The work itself carries on.
+function withLimit(promise, ms) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('Network too slow')), ms);
+    promise.then(value => { clearTimeout(timer); resolve(value); }, error => { clearTimeout(timer); reject(error); });
+  });
+}
 
 function isUsableShellResource(url, response) {
   const contentType = (response.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
@@ -31,6 +46,8 @@ async function cacheShell(cache, response, supportingResources = []) {
   // SPA hosts may answer a missing hashed asset with their HTML fallback and
   // status 200. Do not commit a shell until each asset is actually usable.
   const staged = await Promise.all([...new Set([...resources, ...supportingResources])].map(async url => {
+    // An unchanged build is already complete: do not download it again on every start.
+    if (isImmutable(url) && await cache.match(url)) return null;
     const asset = await fetch(url);
     if (!asset.ok || !isUsableShellResource(url, asset)) throw new Error('App shell asset unavailable or invalid');
     // Fetch resolves at headers. Drain the body now so connection slots can
@@ -39,7 +56,7 @@ async function cacheShell(cache, response, supportingResources = []) {
     await asset.clone().arrayBuffer();
     return { url, asset };
   }));
-  for (const { url, asset } of staged) await cache.put(url, asset);
+  for (const entry of staged) if (entry) await cache.put(entry.url, entry.asset);
   await cache.put(appUrl, response.clone());
 }
 
@@ -83,28 +100,39 @@ self.addEventListener('fetch', event => {
     let cache;
     try { cache = await caches.open(CACHE); }
     catch { return fetch(request); }
-    let response;
-    try {
-      response = await fetch(request);
-      if (response.ok && (navigation || isUsableShellResource(url, response))) {
-        // Both app routes must stage a complete shell before it becomes the
-        // offline document. Non-app HTML never reaches this handler.
-        if (navigation) await cacheShell(cache, response);
-        else await cache.put(request, response.clone());
-      } else {
-        // A newly deployed build may no longer serve an older hashed asset.
-        // Keep an already-open version working until its next reload.
+    const cached = await cache.match(navigation ? appUrl : request, { ignoreVary: true });
+    // Never keep an offline start waiting for a network that cannot answer.
+    if (cached && (isOffline() || (!navigation && isImmutable(request.url)))) return cached;
+    const update = (async () => {
+      let response;
+      try {
+        response = await fetch(request);
+        if (response.ok && (navigation || isUsableShellResource(url, response))) {
+          // Both app routes must stage a complete shell before it becomes the
+          // offline document. Non-app HTML never reaches this handler.
+          if (navigation) await cacheShell(cache, response);
+          else await cache.put(request, response.clone());
+        } else {
+          // A newly deployed build may no longer serve an older hashed asset.
+          // Keep an already-open version working until its next reload.
+          const cached = await cache.match(navigation ? appUrl : request, { ignoreVary: true });
+          if (cached) return cached;
+        }
+        return response;
+      } catch (error) {
         const cached = await cache.match(navigation ? appUrl : request, { ignoreVary: true });
         if (cached) return cached;
+        // Storage may be full or evicted. A successful network response should
+        // still work online when there is no cached version to fall back to.
+        if (response?.ok) return response;
+        throw error;
       }
-      return response;
-    } catch (error) {
-      const cached = await cache.match(navigation ? appUrl : request, { ignoreVary: true });
-      if (cached) return cached;
-      // Storage may be full or evicted. A successful network response should
-      // still work online when there is no cached version to fall back to.
-      if (response?.ok) return response;
-      throw error;
-    }
+    })();
+    if (!cached) return update;
+    // A slow network must not delay the start either: use the saved copy after a
+    // short wait and let the update finish in the background for the next start.
+    event.waitUntil(update.catch(() => {}));
+    try { return await withLimit(update, NETWORK_WAIT_MS); }
+    catch { return cached; }
   })());
 });

@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const origin = 'https://example.test/';
 const oldHtml = '<script type="module" src="/assets/old.js"></script>';
@@ -11,8 +11,14 @@ function worker({ rejectWrites = false, rejectOpen = false } = {}) {
     const entries = new Map<string, Response>([[origin, new Response(oldHtml)], [`${origin}assets/old.js`, new Response('old')]]);
     const network = new Map<string, Response>();
     let offline = false;
+    let stalled = false;
+    const requested: string[] = [];
+    const navigator = { onLine: true };
     const fetch = async (request: string | { url: string }) => {
         const key = typeof request === 'string' ? request : request.url;
+        requested.push(key);
+        // A connection without internet access neither answers nor fails.
+        if (stalled) await new Promise(() => {});
         if (offline) throw new Error('offline');
         return (network.get(key) ?? new Response('missing', { status: 404 })).clone();
     };
@@ -29,16 +35,17 @@ function worker({ rejectWrites = false, rejectOpen = false } = {}) {
         },
     };
     const listeners: Record<string, (event: any) => void> = {};
-    const self = { location: { href: `${origin}sw.js` }, clients: { claim: async () => {} },
+    const self = { navigator, location: { href: `${origin}sw.js` }, clients: { claim: async () => {} },
         addEventListener: (name: string, listener: (event: any) => void) => { listeners[name] = listener; } };
     const caches = { open: async () => {
         if (rejectOpen) throw new Error('cache storage unavailable');
         return cache;
     }, keys: async () => [], delete: async () => true };
-    runInNewContext(readFileSync('public/sw.js', 'utf8'), { self, caches, fetch, URL, Error, Set });
+    runInNewContext(readFileSync('public/sw.js', 'utf8'), { self, caches, fetch, URL, Error, Set,
+        setTimeout: (handler: () => void, ms: number) => setTimeout(handler, ms), clearTimeout: (timer: ReturnType<typeof setTimeout>) => clearTimeout(timer) });
     const request = async (url: string, mode = 'navigate') => {
         let result!: Promise<Response>;
-        listeners.fetch({ request: { url, mode, method: 'GET' }, respondWith: (promise: Promise<Response>) => { result = promise; } });
+        listeners.fetch({ request: { url, mode, method: 'GET' }, waitUntil: () => {}, respondWith: (promise: Promise<Response>) => { result = promise; } });
         return result;
     };
     const install = async () => {
@@ -46,10 +53,49 @@ function worker({ rejectWrites = false, rejectOpen = false } = {}) {
         listeners.install({ waitUntil: (promise: Promise<void>) => { result = promise; } });
         return result;
     };
-    return { entries, network, request, install, goOffline: () => { offline = true; } };
+    return { entries, network, request, install, requested, goOffline: () => { offline = true; },
+        reportOffline: () => { navigator.onLine = false; }, stall: () => { stalled = true; } };
 }
 
 describe('offline shell updates', () => {
+    afterEach(() => { vi.useRealTimers(); });
+
+    it('starts from the saved app without asking the network when the device is offline', async () => {
+        const app = worker();
+        app.entries.set(`${origin}data/config.json`, new Response('working config'));
+        app.reportOffline();
+        app.stall();
+        expect(await (await app.request(origin)).text()).toBe(oldHtml);
+        expect(await (await app.request(`${origin}data/config.json`, 'cors')).text()).toBe('working config');
+        expect(app.requested).toEqual([]);
+    });
+
+    it('starts from the saved app after a short wait when the network does not answer', async () => {
+        vi.useFakeTimers();
+        const app = worker();
+        app.entries.set(`${origin}data/config.json`, new Response('working config'));
+        app.stall();
+        const page = app.request(origin);
+        const config = app.request(`${origin}data/config.json`, 'cors');
+        await vi.advanceTimersByTimeAsync(3000);
+        expect(await (await page).text()).toBe(oldHtml);
+        expect(await (await config).text()).toBe('working config');
+    });
+
+    it('serves an unchanged build file from the saved app without asking the network', async () => {
+        const app = worker();
+        app.stall();
+        expect(await (await app.request(`${origin}assets/old.js`, 'cors')).text()).toBe('old');
+        expect(app.requested).toEqual([]);
+    });
+
+    it('does not download build files again that the saved app already has', async () => {
+        const app = worker();
+        app.network.set(origin, new Response(oldHtml));
+        expect(await (await app.request(origin)).text()).toBe(oldHtml);
+        expect(app.requested).toEqual([origin]);
+    });
+
     it('does not intercept any privately bundled game-data request', async () => {
         const app = worker();
         expect(await app.request(`${origin}data/local-game/manifest.json`, 'cors')).toBeUndefined();
